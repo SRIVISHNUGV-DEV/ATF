@@ -1,0 +1,61 @@
+{
+  "name": "agentix-v1",
+  "version": "1.0.8",
+  "private": true,
+  "workspaces": [
+    "packages/shared/*",
+    "packages/core/*",
+    "packages/services/*",
+    "packages/compiler",
+    "packages/indexer",
+    "packages/scheduler",
+    "packages/merkle-tree",
+    "packages/agent-manifest",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "build": "bun run build:shared && bun run build:core && bun run build:services && bun run build:cli && bun run build:dashboard",
+    "build:shared": "echo 'Shared packages are TS-source'",
+    "build:core": "echo 'Core packages are TS-source'",
+    "build:services": "echo 'Service packages are TS-source'",
+    "build:cli": "bun x tsc --project tsconfig.json",
+    "build:dashboard": "cd apps/dashboard && bun run build",
+    "bundle": "bun x tsx scripts/bundle.ts",
+    "serve": "bun x tsx scripts/serve.ts",
+    "serve:prod": "bun x tsx scripts/serve.ts --prod",
+    "dev": "bun x tsx scripts/serve.ts",
+    "dev:api": "bun x tsx src/runtime/server.ts",
+    "dev:dashboard": "cd apps/dashboard && bun run dev",
+    "test": "bun x tsx tests/e2e.test.ts && bun x vitest run",
+    "test:e2e": "bun x tsx tests/e2e.test.ts",
+    "test:unit": "bun x vitest run",
+    "init": "node dist/src/index.js init",
+    "doctor": "node dist/src/index.js doctor",
+    "diagnostics": "node dist/src/index.js diagnostics",
+    "setup": "node dist/src/index.js setup",
+    "publish:prep": "bun run bundle"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
+    "ethers": "^6.16.0",
+    "better-sqlite3": "^12.11.1",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@adraffy/ens-normalize": "^1.11.1",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "22.20.0",
+    "aes-js": "^3.1.2",
+    "esbuild": "^0.28.1",
+    "tslib": "^2.8.1",
+    "tsx": "^4.22.4",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.9",
+    "ws": "^8.21.1"
+  }
+}

@@ -1,0 +1,11 @@
+const path = require("path");
+const abi = process.versions.modules, plat = process.platform, arch = process.arch;
+const nb = path.join(__dirname, "..", "vendor", "better-sqlite3", abi, plat + "-" + arch, "better_sqlite3.node");
+console.log("target ABI", abi, plat + "-" + arch);
+console.log("binding:", nb, require("fs").existsSync(nb) ? "(exists)" : "(MISSING)");
+const Database = require("better-sqlite3");
+const db = new Database(":memory:", { nativeBinding: nb });
+db.pragma("journal_mode = WAL");
+console.log("query:", db.prepare("select 42 as v").get());
+db.close();
+console.log("NODE OK");

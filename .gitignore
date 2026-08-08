@@ -1,0 +1,85 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Runtime data
+*.db
+*.sqlite
+*.sqlite3
+
+# Test outputs
+coverage/
+.nyc_output/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local overrides
+*.local
+
+# Hardhat/Foundry (blockchain)
+cache/
+artifacts/
+typechain-types/
+
+# ZK artifacts
+*.r1cs
+*.wasm
+*.zkey
+*.vkey
+
+# Next.js build output (apps/dashboard)
+.next/
+
+# Bun bundle output (npm publish staging, rebuilt by scripts/bundle.ts)
+dist-publish/
+
+# Log files
+*.log
+
+# SQLite WAL/SHM sidecar files (created alongside *.db)
+*.db-shm
+*.db-wal
+
+# AgentIX runtime/test homes (created by tests/e2e.test.ts and vitest)
+.agentix-e2e/
+.agentix-test/
+
+# Machine-specific editor permissions (keep shareable taste.md)
+**/.commandcode/settings.json
+
+# Vendor binaries (platform-specific)
+vendor/**/*.node

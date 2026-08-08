@@ -1,0 +1,16 @@
+{
+  "version": "12.11.1",
+  "generated": "2026-07-18T02:37:59.244Z",
+  "binaries": {
+    "127/win32-x64": "1874KB",
+    "127/linux-x64": "2069KB",
+    "127/linux-arm64": "1946KB",
+    "127/darwin-x64": "1880KB",
+    "127/darwin-arm64": "1886KB",
+    "137/win32-x64": "1875KB",
+    "137/linux-x64": "2073KB",
+    "137/linux-arm64": "1946KB",
+    "137/darwin-x64": "1881KB",
+    "137/darwin-arm64": "1887KB"
+  }
+}
