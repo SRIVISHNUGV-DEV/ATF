@@ -15,8 +15,8 @@ smart wallets on Base (Ethereum L2).
 ## How Organizations Work
 An organization is the root entity. It registers on-chain and gets a credential anchor
 that holds Merkle roots. Organizations issue credentials to AI agents.
-- Create: npx agentix org create --name "My Org" --owner 0x...
-- List: npx agentix org list
+- Create: agentix org create --name "My Org" --owner 0x...
+- List: agentix org list
 
 ## How Credentials Work
 Credentials are issued by organizations to agents. Each credential has:
@@ -25,30 +25,30 @@ Credentials are issued by organizations to agents. Each credential has:
 - expiry (when the credential expires)
 - nullifier (unique hash for replay protection)
 Credentials are stored locally and committed on-chain via Merkle roots.
-- Issue: npx agentix cred issue --org <orgId> --agent <agentId> --permissions 1
-- List: npx agentix cred list --org <orgId>
+- Issue: agentix cred issue --org <orgId> --agent <agentId> --permissions 1
+- List: agentix cred list --org <orgId>
 
 ## How Merkle Trees Work
 Each organization has two Merkle trees:
 - ActiveTree: Contains all valid credentials
 - RevokedTree: Contains revoked credential nullifiers
 Trees use Poseidon hash and are committed on-chain for verification.
-- Status: npx agentix tree status <orgId>
-- Rebuild: npx agentix tree rebuild <orgId>
+- Status: agentix tree status <orgId>
+- Rebuild: agentix tree rebuild <orgId>
 
 ## How Proofs Work
 ZK proofs (Groth16) prove credential validity without revealing the credential itself.
 Public signals: nullifier, activeRoot, revokedRoot, permissions, sessionExpiry, wallet.
-- Generate: npx agentix proof generate --org <orgId> --agent <agentId>
-- Verify: npx agentix proof verify --hash <proofHash>
+- Generate: agentix proof generate --org <orgId> --agent <agentId>
+- Verify: agentix proof verify --hash <proofHash>
 
 ## How Sessions Work
 Sessions authorize wallets to execute transactions. Two types:
 - Lightweight: Created with owner signature (fast, no ZK proof needed)
 - Full: Created with ZK proof of credential validity
 Sessions have daily spend limits, daily tx limits, and expiry.
-- Create: npx agentix session create --wallet <addr> --session-key <key>
-- Validate: npx agentix session validate <sessionId> --signer <addr>
+- Create: agentix session create --wallet <addr> --session-key <key>
+- Validate: agentix session validate <sessionId> --signer <addr>
 
 ## How Replay Protection Works
 Each credential has a unique nullifier. When a session is used, the nullifier is
@@ -60,24 +60,24 @@ AgentWallets are ERC-4337 smart accounts (like a bank account for your AI agent)
 - Owner: Can manage sessions, whitelist addresses
 - Whitelist: Addresses the wallet can send ETH to
 - EntryPoint deposit: Pre-funded gas for sponsored transactions
-- Create: npx agentix wallet create --owner <address>
-- Execute: npx agentix wallet execute <wallet> --to <target> --value <eth>
+- Create: agentix wallet create --owner <address>
+- Execute: agentix wallet execute <wallet> --to <target> --value <eth>
 
 ## How Capabilities Work
 Capabilities are on-chain registrations of what an organization's agents can do.
-- Register: npx agentix capability register --org <orgId> --name "Trade" --description "Execute trades"
-- List: npx agentix capability list --org <orgId>
+- Register: agentix capability register --org <orgId> --name "Trade" --description "Execute trades"
+- List: agentix capability list --org <orgId>
 
 ## How Delegations Work
 Delegations let an agent delegate specific scopes to another address.
-- Create: npx agentix delegation create --delegator <addr> --delegatee <addr> --scope "trade"
-- List: npx agentix delegation list --org <orgId>
+- Create: agentix delegation create --delegator <addr> --delegatee <addr> --scope "trade"
+- List: agentix delegation list --org <orgId>
 
 ## How Backups Work
 AgentIX automatically backs up your local data. You can create, list, and restore backups.
-- Create: npx agentix backup create
-- List: npx agentix backup list
-- Restore: npx agentix backup restore <id>
+- Create: agentix backup create
+- List: agentix backup list
+- Restore: agentix backup restore <id>
 
 ## How the Local Runtime Works
 Everything runs locally on your machine:
@@ -92,30 +92,30 @@ All on-chain contracts use the proxy pattern (UUPS upgradeable). This means:
 - Proxy addresses are stable (never change)
 - Implementation can be upgraded
 - NEVER interact with implementation addresses directly
-Use 'npx agentix contracts list' to see all proxy addresses.
+Use 'agentix contracts list' to see all proxy addresses.
 
 ## How Authority Approval Works
 New organizations must be approved by the authority before they can issue credentials.
 This prevents unauthorized organizations from creating credentials.
-- Submit request: npx agentix org request --name "My Org" --owner <addr>
+- Submit request: agentix org request --name "My Org" --owner <addr>
 - Approve: authority approves via EIP-712 signature
 
 ## How to Recover from Corruption
-1. Check what's wrong: npx agentix doctor
-2. List available backups: npx agentix backup list
-3. Restore from backup: npx agentix backup restore <id>
-4. Rebuild Merkle trees: npx agentix tree rebuild <orgId>
-5. Verify everything works: npx agentix doctor
+1. Check what's wrong: agentix doctor
+2. List available backups: agentix backup list
+3. Restore from backup: agentix backup restore <id>
+4. Rebuild Merkle trees: agentix tree rebuild <orgId>
+5. Verify everything works: agentix doctor
 
 ## How to Migrate Machines
-1. Create a full backup: npx agentix backup create
-2. Export it: npx agentix backup export <id> --file backup.tar.gz
-3. On new machine: npx agentix init
-4. Import the backup: npx agentix backup import --file backup.tar.gz
-5. Verify: npx agentix doctor
+1. Create a full backup: agentix backup create
+2. Export it: agentix backup export <id> --file backup.tar.gz
+3. On new machine: agentix init
+4. Import the backup: agentix backup import --file backup.tar.gz
+5. Verify: agentix doctor
 
 ## Getting ETH for Testing
-Run: npx agentix fund --network baseSepolia --amount 10
+Run: agentix fund --network baseSepolia --amount 10
 This shows the best fiat on-ramp options (MoonPay, Coinbase, Transak, Ramp).
 AgentIX only recommends official providers — never executes purchases.
 `;
@@ -127,102 +127,102 @@ export function getHelp(topic?: string): string {
     organization: `
 ### Organizations
 Register an organization:
-  npx agentix org create --name "My Org" --owner 0x...
+  agentix org create --name "My Org" --owner 0x...
 
 List organizations:
-  npx agentix org list
+  agentix org list
 
 Get organization details:
-  npx agentix org get <orgId>
+  agentix org get <orgId>
 `,
     credential: `
 ### Credentials
 Issue a credential:
-  npx agentix cred issue --org <orgId> --agent <agentId> --permissions <bits> --expiry <seconds>
+  agentix cred issue --org <orgId> --agent <agentId> --permissions <bits> --expiry <seconds>
 
 List credentials:
-  npx agentix cred list --org <orgId>
+  agentix cred list --org <orgId>
 
 Revoke a credential:
-  npx agentix cred revoke --org <orgId> --agent <agentId>
+  agentix cred revoke --org <orgId> --agent <agentId>
 `,
     session: `
 ### Sessions
 Create a lightweight session:
-  npx agentix session create --wallet <address> --session-key <key> --expiry <seconds>
+  agentix session create --wallet <address> --session-key <key> --expiry <seconds>
 
 Create a full session (with ZK proof):
-  npx agentix session create-zk --wallet <address>
+  agentix session create-zk --wallet <address>
 
 Validate a session:
-  npx agentix session validate <sessionId> --signer <address> --value <amount>
+  agentix session validate <sessionId> --signer <address> --value <amount>
 
 Revoke a session:
-  npx agentix session revoke <sessionId> --wallet <address>
+  agentix session revoke <sessionId> --wallet <address>
 `,
     wallet: `
 ### Wallets
 Create a wallet via factory:
-  npx agentix wallet create --owner <address>
+  agentix wallet create --owner <address>
 
 Get wallet info:
-  npx agentix wallet get <walletAddress>
+  agentix wallet get <walletAddress>
 
 Whitelist an address:
-  npx agentix wallet whitelist <walletAddress> <partyAddress>
+  agentix wallet whitelist <walletAddress> <partyAddress>
 
 Execute a transaction:
-  npx agentix wallet execute <walletAddress> --to <addr> --value <eth>
+  agentix wallet execute <walletAddress> --to <addr> --value <eth>
 `,
     tree: `
 ### Merkle Trees
 Show tree status:
-  npx agentix tree status <orgId>
+  agentix tree status <orgId>
 
 Rebuild tree:
-  npx agentix tree rebuild <orgId>
+  agentix tree rebuild <orgId>
 
 Export tree:
-  npx agentix tree export <orgId>
+  agentix tree export <orgId>
 
 Import tree:
-  npx agentix tree import <orgId> --file <path>
+  agentix tree import <orgId> --file <path>
 
 Snapshot tree:
-  npx agentix tree snapshot <orgId>
+  agentix tree snapshot <orgId>
 `,
     delegation: `
 ### Delegations
 Create a delegation:
-  npx agentix delegation create --org <orgId> --delegator <addr> --delegatee <addr> --scope <scope>
+  agentix delegation create --org <orgId> --delegator <addr> --delegatee <addr> --scope <scope>
 
 List delegations:
-  npx agentix delegation list --org <orgId>
+  agentix delegation list --org <orgId>
 
 Revoke a delegation:
-  npx agentix delegation revoke <delegationId>
+  agentix delegation revoke <delegationId>
 `,
     capability: `
 ### Capabilities
 Register a capability:
-  npx agentix capability register --org <orgId> --name "Capability" --description "Description"
+  agentix capability register --org <orgId> --name "Capability" --description "Description"
 
 List capabilities:
-  npx agentix capability list --org <orgId>
+  agentix capability list --org <orgId>
 `,
     backup: `
 ### Backups
 Create backup:
-  npx agentix backup create
+  agentix backup create
 
 List backups:
-  npx agentix backup list
+  agentix backup list
 
 Restore backup:
-  npx agentix backup restore <backupId>
+  agentix backup restore <backupId>
 
 Export backup:
-  npx agentix backup export <backupId> --file <path>
+  agentix backup export <backupId> --file <path>
 `,
     trust: `
 ### Trust Boundary Documentation
@@ -257,40 +257,40 @@ Every tool validates addresses via ProxyGuard:
 4. Returns only proxy addresses
 
 To see all proxy addresses:
-  npx agentix contracts list
+  agentix contracts list
 `,
     recovery: `
 ### Corruption Recovery
 Steps to recover from data corruption:
 
-1. Diagnose: npx agentix doctor
-2. List backups: npx agentix backup list
-3. Restore: npx agentix backup restore <id>
-4. Rebuild trees: npx agentix tree rebuild <orgId>
-5. Verify: npx agentix doctor
+1. Diagnose: agentix doctor
+2. List backups: agentix backup list
+3. Restore: agentix backup restore <id>
+4. Rebuild trees: agentix tree rebuild <orgId>
+5. Verify: agentix doctor
 
 For database corruption:
-  npx agentix doctor --check-db
+  agentix doctor --check-db
 
 For tree corruption:
-  npx agentix tree rebuild <orgId> --force
+  agentix tree rebuild <orgId> --force
 `,
     migration: `
 ### Machine Migration
 To migrate AgentIX to another machine:
 
 1. Export all data:
-   npx agentix backup create
-   npx agentix backup export <id> --file backup.tar.gz
+   agentix backup create
+   agentix backup export <id> --file backup.tar.gz
 
 2. On new machine:
-   npx agentix init
-   npx agentix backup import --file backup.tar.gz
-   npx agentix doctor
+   agentix init
+   agentix backup import --file backup.tar.gz
+   agentix doctor
 
 3. Verify:
-   npx agentix contracts list
-   npx agentix doctor --full
+   agentix contracts list
+   agentix doctor --full
 `,
   };
 

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { createHash } from "crypto";
-import { runQuery, runSingle, runExecute, runTransaction } from "../database";
+import { runQuery, runSingle, runExecute } from "../database";
 import { generateId, checksum } from "../../shared/utils";
 import type { Backup } from "../../shared/types";
 
@@ -137,18 +137,14 @@ export class BackupEngine {
       "config", "metadata",
     ];
 
-    // Wrap the entire restore in a single transaction so a crash mid-restore
-    // rolls back to the pre-restore state instead of leaving partial data.
-    runTransaction(() => {
-      for (const table of tables) {
-        if (!data[table]) continue;
-        for (const row of data[table]) {
-          const keys = Object.keys(row);
-          const placeholders = keys.map(() => "?").join(", ");
-          const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`;
-          runExecute(sql, ...Object.values(row));
-        }
+    for (const table of tables) {
+      if (!data[table]) continue;
+      for (const row of data[table]) {
+        const keys = Object.keys(row);
+        const placeholders = keys.map(() => "?").join(", ");
+        const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`;
+        runExecute(sql, ...Object.values(row));
       }
-    });
+    }
   }
 }

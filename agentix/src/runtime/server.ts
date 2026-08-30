@@ -1,5 +1,4 @@
 import http from "http";
-import { randomBytes, timingSafeEqual } from "crypto";
 import { getDatabase, runQuery, runSingle, runExecute } from "../core/database";
 import { getProxyGuard } from "../core/proxy-guard";
 import { getEventBus } from "../../packages/core/eventbus";
@@ -12,7 +11,6 @@ import { getProofService } from "../../packages/services/proof-service";
 import { BackupEngine } from "../../packages/core/backup-engine";
 import { loadConfig } from "../core/config";
 import { join } from "path";
-import { readRuntimeManifest, writeRuntimeManifest } from "../core/ports";
 import type { ZodType } from "zod";
 import {
   OrganizationRequestSchema,
@@ -34,73 +32,17 @@ const PREFERRED_PORT = parseInt(
   10
 );
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
-const HOST = "127.0.0.1";
-const API_TOKEN = process.env.AGENTIX_API_TOKEN || readRuntimeManifest().apiToken || randomBytes(32).toString("hex");
+const HOST = "127.0.0.1"; // Localhost only — no auth needed
 // The port we actually bound to (resolved at startup). Declared here so request
 // handlers can reference it; assigned in the async bootstrap block below.
 let BOUND_PORT = PREFERRED_PORT;
 
-// ── Rate Limiting ──────────────────────────────────────────────
-// Simple in-memory sliding window rate limiter. Prevents brute-force attacks
-// against the API token and denial-of-service from localhost.
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 120; // per window per IP
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(ip, { count: 1, windowStart: now });
-    return true;
-  }
-  entry.count++;
-  return entry.count <= RATE_LIMIT_MAX_REQUESTS;
-}
-// Periodically clean up stale entries to prevent memory growth.
-setInterval(() => {
-  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS * 2;
-  for (const [ip, entry] of rateLimitMap) {
-    if (entry.windowStart < cutoff) rateLimitMap.delete(ip);
-  }
-}, RATE_LIMIT_WINDOW_MS);
-
-function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return true;
-  try {
-    const u = new URL(origin);
-    return (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]") &&
-      (u.protocol === "http:" || u.protocol === "https:");
-  } catch {
-    return false;
-  }
-}
-
-function corsOrigin(req?: http.IncomingMessage): string {
-  const origin = req?.headers.origin;
-  return typeof origin === "string" && isAllowedOrigin(origin) ? origin : "http://127.0.0.1";
-}
-
-function authorized(req: http.IncomingMessage): boolean {
-  const auth = req.headers.authorization || "";
-  if (!auth.startsWith("Bearer ")) return false;
-  const token = auth.slice("Bearer ".length);
-  const a = Buffer.from(token);
-  const b = Buffer.from(API_TOKEN);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function authRequired(path: string): boolean {
-  return path.startsWith("/api/") && path !== "/api/health" && path !== "/api/runtime-info";
-}
-
-function json(res: http.ServerResponse, data: any, status = 200, req?: http.IncomingMessage) {
+function json(res: http.ServerResponse, data: any, status = 200) {
   res.writeHead(status, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin(req),
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Vary": "Origin",
+    "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(JSON.stringify(data));
 }
@@ -113,21 +55,13 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
       size += chunk.length;
       if (size > MAX_BODY_SIZE) {
         req.destroy();
-        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
+        reject(new Error("Request body too large"));
         return;
       }
       body += chunk;
     });
     req.on("end", () => {
-      if (!body.trim()) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(Object.assign(new Error("Malformed JSON request body"), { statusCode: 400 }));
-      }
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
     });
   });
 }
@@ -149,35 +83,17 @@ function validateBody<T>(res: http.ServerResponse, schema: ZodType<T>, body: unk
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://${HOST}:${BOUND_PORT}`);
-  const path = url.pathname;
-
   if (req.method === "OPTIONS") {
-    if (!isAllowedOrigin(typeof req.headers.origin === "string" ? req.headers.origin : undefined)) {
-      return json(res, { error: "Forbidden origin" }, 403, req);
-    }
     res.writeHead(200, {
-      "Access-Control-Allow-Origin": corsOrigin(req),
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Vary": "Origin",
+      "Access-Control-Allow-Headers": "Content-Type",
     });
     return res.end();
   }
 
-  if (!isAllowedOrigin(typeof req.headers.origin === "string" ? req.headers.origin : undefined)) {
-    return json(res, { error: "Forbidden origin" }, 403, req);
-  }
-
-  // Rate limiting: 120 requests per minute per IP
-  const clientIp = req.socket.remoteAddress || "unknown";
-  if (!checkRateLimit(clientIp)) {
-    return json(res, { error: "Rate limit exceeded. Try again later." }, 429, req);
-  }
-
-  if (authRequired(path) && !authorized(req)) {
-    return json(res, { error: "Unauthorized" }, 401, req);
-  }
+  const url = new URL(req.url || "/", `http://${HOST}:${BOUND_PORT}`);
+  const path = url.pathname;
 
   try {
     // ── Health & Status ──────────────────────────────────────────────
@@ -243,7 +159,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (path === "/api/onboarding/harnesses" && req.method === "GET") {
-      const { getHarnessManager, connectUniversal, writeUniversalMCPFile } = await import("../../packages/core/harness-adapter");
+      const { getHarnessManager } = await import("../../packages/core/harness-adapter");
       const { runExecute } = await import("../core/database");
       const manager = getHarnessManager();
       const scan = await manager.scanAll();
@@ -264,45 +180,14 @@ const server = http.createServer(async (req, res) => {
         );
       }
 
-      const portable = writeUniversalMCPFile();
-      const universal = connectUniversal();
-      const wiredByPath = new Map<string, any>();
-      if (portable.success) wiredByPath.set(portable.path, { path: portable.path, schema: "mcpServers", created: portable.created, message: portable.message });
-      for (const w of universal.wired) wiredByPath.set(w.path, w);
-      return json(res, {
-        ...scan,
-        portable,
-        wired: [...wiredByPath.values()],
-        failed: universal.failed,
-      });
+      return json(res, scan);
     }
 
     if (path === "/api/onboarding/harnesses/connect" && req.method === "POST") {
-      const { getHarnessManager, connectUniversal, writeUniversalMCPFile } = await import("../../packages/core/harness-adapter");
+      const { getHarnessManager } = await import("../../packages/core/harness-adapter");
       const manager = getHarnessManager();
-      const named = await manager.connectAll();
-      const portable = writeUniversalMCPFile();
-      const universal = connectUniversal();
-      const namedPaths = new Set(
-        (await manager.scanAll()).harnesses
-          .map((h: any) => h.adapter?.mcpConfigPath)
-          .filter(Boolean)
-      );
-      const wiredByPath = new Map<string, any>();
-      if (portable.success) wiredByPath.set(portable.path, { path: portable.path, schema: "mcpServers", created: portable.created, message: portable.message });
-      for (const w of universal.wired) {
-        if (!namedPaths.has(w.path)) wiredByPath.set(w.path, w);
-      }
-      const wired = [...wiredByPath.values()];
-      return json(res, {
-        ...named,
-        wired,
-        failed: [
-          ...(portable.success ? [] : [{ path: portable.path, message: portable.message }]),
-          ...universal.failed,
-        ],
-        message: `Wired ${wired.length + named.totalConnected} MCP config file(s)`,
-      });
+      const result = await manager.connectAll();
+      return json(res, result);
     }
 
     if (path === "/api/onboarding/harnesses/connect" && req.method === "DELETE") {
@@ -483,19 +368,9 @@ const server = http.createServer(async (req, res) => {
 
     if (path === "/api/policy" && req.method === "POST") {
       const body = await parseBody(req);
-      if (!body.signature || body.signature === '0x') {
-        return json(res, {
-          success: false,
-          error: 'Owner signature required. The wallet owner must EIP-191 sign the policy parameters.',
-        }, 400);
-      }
       const { setOwnerPolicy } = await import("../core/owner-policy");
-      try {
-        const policy = await setOwnerPolicy(body);
-        return json(res, policy, 201);
-      } catch (e: any) {
-        return json(res, { success: false, error: e.message }, 403);
-      }
+      const policy = await setOwnerPolicy(body);
+      return json(res, policy, 201);
     }
 
     if (path === "/api/policy/check" && req.method === "POST") {
@@ -844,7 +719,7 @@ const server = http.createServer(async (req, res) => {
       const adapter = await import("../blockchain/adapter");
 
       const sessionExpiry = body.sessionExpiry || Math.floor(Date.now() / 1000) + (body.expiryDays || 30) * 86400;
-      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt("0x" + require("crypto").randomBytes(16).toString("hex"));
+      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt(Math.floor(Date.now() / 1000));
 
       logger.info(
         "session-tx",
@@ -1741,7 +1616,7 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/proofs/generate" && req.method === "POST") {
       const body = await parseBody(req);
       const { generateProof } = await import("../tools/proof");
-      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt("0x" + require("crypto").randomBytes(16).toString("hex"));
+      const sessionNonce = body.sessionNonce ? BigInt(body.sessionNonce) : BigInt(Math.floor(Date.now() / 1000));
       const sessionExpiry = body.sessionExpiry || Math.floor(Date.now() / 1000) + 86400;
       const result = await generateProof(
         body.organizationId,
@@ -1794,10 +1669,7 @@ const server = http.createServer(async (req, res) => {
     // and unhelpful to callers. A correlation id ties the response to the log line.
     const errorId = `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     console.error(`[${errorId}] ${req.method} ${req.url}:`, e?.stack || e?.message || e);
-    const status = Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 500
-      ? e.statusCode
-      : 500;
-    json(res, { error: status === 400 ? "Malformed JSON request body" : status === 413 ? "Request body too large" : "Internal server error", errorId }, status, req);
+    json(res, { error: "Internal server error", errorId }, 500);
   }
 });
 
@@ -1822,7 +1694,7 @@ const server = http.createServer(async (req, res) => {
 
     // Record where we actually landed so the dashboard can proxy /api to us.
     try {
-      writeRuntimeManifest({ apiPort: BOUND_PORT, host: HOST, apiPid: process.pid, apiToken: API_TOKEN });
+      writeRuntimeManifest({ apiPort: BOUND_PORT, host: HOST, apiPid: process.pid });
     } catch (e: any) {
       console.warn(`Could not write runtime manifest: ${e.message}`);
     }

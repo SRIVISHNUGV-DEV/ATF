@@ -1,9 +1,11 @@
 "use client";
 
-// API base. Default is EMPTY (same-origin) so browser calls hit the dashboard's
-// local /api proxy route. That route reads AGENTIX_HOME/runtime.json server-side
-// and injects the local API bearer token before forwarding to the runtime API.
-// The browser never sees the token and never needs to know the backend port.
+// API base. Default is EMPTY (same-origin) so all calls hit "/api/..." on the
+// dashboard's own port. next.config.js rewrites "/api/*" to the API server's
+// actual (possibly dynamic) port, discovered from AGENTIX_HOME/runtime.json at
+// dashboard startup. This keeps the browser port-agnostic — it never needs to
+// know where the backend landed. Set NEXT_PUBLIC_API_URL only to point the
+// dashboard at a remote/non-default API host.
 export const API = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -11,16 +13,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  const contentType = res.headers.get("content-type") || "";
-  const data = contentType.includes("application/json")
-    ? await res.json()
-    : await res.text();
-  if (!res.ok) {
-    if (typeof data === "string") {
-      throw new Error(`HTTP ${res.status} — backend returned a non-JSON response (is the runtime API running?)`);
-    }
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data as T;
 }
 

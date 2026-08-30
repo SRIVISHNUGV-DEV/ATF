@@ -45,28 +45,10 @@ export function detectSchema(config: any): MCPSchema {
 export function readUniversalEntry(config: any, key = MCP_KEY): MCPEntry | null {
   if (!config || typeof config !== "object") return null;
   const raw = config.mcpServers?.[key] || config.servers?.[key] || config.mcp?.[key];
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw) return null;
   // OpenCode stores command as [bin, ...args]; normalize so callers can inspect it.
-  if (Array.isArray(raw.command)) {
-    const [command, ...args] = raw.command;
-    return typeof command === "string" ? { command, args: args.filter((a: any) => typeof a === "string") } : null;
-  }
-  if (typeof raw.command !== "string") return null;
-  return { ...raw, args: Array.isArray(raw.args) ? raw.args : [] };
-}
-
-function pathArgExists(entry: MCPEntry): boolean {
-  const fileArg = (entry.args || []).find((a) => /[\\/]/.test(a) && /\.(js|ts|cjs|mjs)$/.test(a));
-  return fileArg ? existsSync(fileArg.replace(/\\\\/g, "\\")) : true;
-}
-
-function universalEntryIsValid(entry: MCPEntry | null): boolean {
-  if (!entry?.command) return false;
-  if (entry.command === "agentix-mcp") return true;
-  if (entry.command === "node" || entry.command === process.execPath || entry.command === "npx") {
-    return pathArgExists(entry);
-  }
-  return true;
+  if (Array.isArray(raw.command)) return { command: raw.command[0], args: raw.command.slice(1) };
+  return raw;
 }
 
 /** Write the AgentIX launch entry into a parsed config using the given schema (in place). */
@@ -109,14 +91,6 @@ export function connectConfigFile(
   }
 
   const schema = opts.schema || detectSchema(config);
-  const existing = readUniversalEntry(config, key);
-  if (universalEntryIsValid(existing)) {
-    return {
-      success: true, path: configPath, schema, created,
-      message: `${configPath} already contains a launchable AgentIX MCP entry (${schema})`,
-    };
-  }
-
   const entry = resolveMCPLaunchCommand(opts.agentixPath || "");
   if (!entry) {
     return {

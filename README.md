@@ -536,7 +536,7 @@ bun x tsx tests/soak-test.ts --duration=24h --interval=5m
 
 ## License
 
-BUSL-1.1 — Converts to Apache 2.0 on January 1, 2030.
+Apache License 2.0
 
 ---
 

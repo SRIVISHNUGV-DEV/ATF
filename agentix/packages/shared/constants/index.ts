@@ -24,9 +24,7 @@ export const RATE_LIMIT_MAX = 10;
 export const NETWORK = {
   name: "Base Sepolia",
   chainId: 84532,
-  // Public, no-key primary (matches DEFAULT_CONFIG.rpcUrl). base.org is only a
-  // fallback in the rotation list — never the primary.
-  rpcUrl: "https://base-sepolia-testnet.api.pocket.network",
+  rpcUrl: "https://sepolia.base.org",
   explorerUrl: "https://sepolia.basescan.org",
 } as const;
 

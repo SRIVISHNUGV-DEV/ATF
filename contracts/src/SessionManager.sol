@@ -118,6 +118,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     mapping(bytes32 => address[]) public sessionTargets;
     /// @notice Maps each wallet to its list of session IDs for enumeration/pruning.
     mapping(address => bytes32[]) public walletSessions;
+
     uint256 public constant MAX_SESSIONS_PER_WALLET = 100;
     uint256 public constant MAX_ALLOWED_TARGETS = 32;
     uint256 public constant TIMELOCK_DELAY = 2 days;
@@ -296,6 +297,9 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         Session storage s = sessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
+        // Authorize against the wallet bound to the session, never a caller-
+        // supplied address (otherwise any wallet owner could revoke any session).
+        wallet = s.wallet;
         if (msg.sender != s.sessionKey && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
             revert NotAuthorizedToRevoke();
         }
@@ -330,7 +334,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         uint64 expiry,
         address[] calldata allowedTargets,
         bytes calldata ownerSignature
-    ) external whenNotPaused {
+    ) external nonReentrant whenNotPaused {
         if (!walletFactory.isAgentWallet(msg.sender)) revert NotAgentWallet();
         if (sessionKey == address(0)) revert InvalidSessionKey();
         if (sessionKey == msg.sender) revert InvalidSessionKey();
@@ -424,6 +428,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
 
+        wallet = s.wallet;
         if (s.sessionKey != msg.sender && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
             revert NotAuthorizedToRevoke();
         }

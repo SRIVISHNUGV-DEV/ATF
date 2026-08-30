@@ -4,7 +4,6 @@ import { getAbiByName, getContract, getReadonlyContract } from "../contracts";
 import { getProxyGuard } from "../core/proxy-guard";
 import { loadConfig } from "../core/config";
 import { logger } from "../core/logger";
-import { extractWalletAddressFromLogs as _extractWalletFromLogs } from "../core/tx-builder";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -374,5 +373,17 @@ export function getSignerAddress(): string {
 
 // ── Event Parsing ─────────────────────────────────────────────────
 
-// Re-export from tx-builder (single source of truth)
-export const extractWalletAddressFromLogs = _extractWalletFromLogs;
+export function extractWalletAddressFromLogs(logs: any[], factoryAddress: string): string | null {
+  const walletCreatedTopic = ethers.id("WalletCreated(address,address,bytes32,address)");
+  for (const log of logs) {
+    if (log.topics?.[0] === walletCreatedTopic) {
+      return "0x" + log.topics[1].slice(26);
+    }
+  }
+  for (const log of logs) {
+    if (log.address?.toLowerCase() === factoryAddress.toLowerCase() && log.topics?.length >= 2) {
+      return "0x" + log.topics[1].slice(26);
+    }
+  }
+  return null;
+}

@@ -26,7 +26,6 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 class Logger {
   private level: LogLevel = LogLevel.INFO;
   private logDir: string;
-  private stdioOnly: boolean;
 
   constructor() {
     this.logDir = join(AGENTIX_HOME, "logs");
@@ -41,14 +40,6 @@ class Logger {
       error: LogLevel.ERROR,
     };
     if (envLevel in map) this.level = map[envLevel];
-
-    // MCP stdio reserves stdout for JSON-RPC frames. Any human log line on
-    // stdout corrupts the protocol and makes clients fail to parse responses.
-    const entrypoint = process.argv[1] || "";
-    this.stdioOnly =
-      process.env.AGENTIX_MCP_STDIO === "1" ||
-      /[\\/]mcp\.js$/i.test(entrypoint) ||
-      /[\\/]src[\\/]mcp[\\/]server\.ts$/i.test(entrypoint);
   }
 
   setLevel(level: LogLevel) {
@@ -64,7 +55,7 @@ class Logger {
     const prefix = `${color}[${ts}] [${label}] [${component}]\x1b[0m`;
     const line = data ? `${prefix} ${message} ${JSON.stringify(data)}` : `${prefix} ${message}`;
 
-    if (this.stdioOnly || level >= LogLevel.WARN) {
+    if (level >= LogLevel.WARN) {
       console.error(line);
     } else {
       console.log(line);

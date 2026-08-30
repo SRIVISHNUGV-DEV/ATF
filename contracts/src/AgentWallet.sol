@@ -27,6 +27,10 @@ error SessionValidationFailedError();
 error OwnershipTransferPendingError();
 error BatchTooLargeError();
 error BatchNotAllowedForSessionError();
+/// @dev Session budgets account for native ETH only. Until asset-aware
+/// permissions are configured, sessions must not dispatch arbitrary calldata
+/// (which could move ERC-20/NFT assets with zero msg.value).
+error SessionCalldataNotAllowedError();
 error TimelockNotReadyError();
 error TimelockActiveError();
 
@@ -343,8 +347,19 @@ contract AgentWallet is ReentrancyGuard {
 
         (sessionId,) = abi.decode(userOp.signature, (bytes32, bytes));
         address target = _extractTarget(userOp.callData);
+        // A session's accounting is denominated in native ETH. Arbitrary
+        // calldata would allow token/NFT transfers while reporting value=0.
+        // Reject it at the wallet boundary; owner-signed calls remain supported.
+        if (_hasInnerCalldata(userOp.callData)) revert SessionCalldataNotAllowedError();
         _validateSession(sessionId, signer, spendValue, target);
         return (spendValue, sessionId, signer);
+    }
+
+    function _hasInnerCalldata(bytes calldata callData) internal pure returns (bool) {
+        bytes4 selector = bytes4(callData[:4]);
+        if (selector != EXECUTE_SELECTOR) return true;
+        (address _target, uint256 _value, bytes memory inner) = abi.decode(callData[4:], (address, uint256, bytes));
+        return inner.length != 0;
     }
 
     /// @dev Validates the signature against the owner or returns the signer for session validation.

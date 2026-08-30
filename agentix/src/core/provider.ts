@@ -57,7 +57,7 @@ export function getProvider(): ethers.JsonRpcProvider {
 
   if (_provider) return _provider;
   const url = config.rpcUrl;
-  if (!url) throw new Error("No RPC URL configured. Run: npx agentix config set rpcUrl <url>");
+  if (!url) throw new Error("No RPC URL configured. Run: agentix config set rpcUrl <url>");
   _provider = _createProvider(url);
   return _provider;
 }
@@ -175,11 +175,6 @@ export function resetProviders(): void {
   _fallbackProvider = null;
   _signer = null;
   _primaryFailedAt = 0;
-  // Invalidate cached domain separator (chain may have changed)
-  try {
-    const { resetDomainSeparator } = require("../runtime/bundler");
-    resetDomainSeparator();
-  } catch { /* bundler may not be loaded */ }
 }
 
 

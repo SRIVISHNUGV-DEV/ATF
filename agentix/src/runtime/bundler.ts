@@ -47,13 +47,7 @@ export interface BundlerResult {
 }
 
 // ── Domain Separator Cache ──────────────────────────────────────
-// Cached per chain; invalidated when provider resets (chain switch).
 let _domainSeparator: string | null = null;
-
-/** Invalidate the cached domain separator. Called on provider/chain reset. */
-export function resetDomainSeparator(): void {
-  _domainSeparator = null;
-}
 
 async function getDomainSeparator(): Promise<string> {
   if (_domainSeparator) return _domainSeparator;
@@ -204,30 +198,6 @@ export async function bundleUserOp(userOp: PackedUserOp): Promise<BundlerResult>
     }
 
     logger.info("bundler", `UserOp submitted: ${txHash} (success=${opSucceeded ?? "unconfirmed"})`);
-
-    // Record the transaction locally so the dashboard/SDK can see it immediately,
-    // not just after the async event indexer catches up.
-    try {
-      const { runExecute } = await import("../core/database");
-      runExecute(
-        `INSERT OR IGNORE INTO transactions (wallet_address, tx_hash, to_address, value, data, status, block_number, gas_used, event_name, contract_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        userOp.sender,
-        txHash,
-        userOp.sender, // target is encoded in calldata
-        "0",
-        userOp.callData || "0x",
-        opSucceeded === true ? "confirmed" : opSucceeded === false ? "reverted" : "submitted",
-        receipt?.blockNumber || null,
-        receipt?.gasUsed?.toString() || null,
-        "UserOperation",
-        "EntryPoint",
-        Math.floor(Date.now() / 1000)
-      );
-    } catch (e: any) {
-      logger.warn("bundler", `Failed to record transaction locally: ${e.message}`);
-    }
-
     return { success: true, userOpHash, txHash };
   } catch (e: any) {
     logger.error("bundler", `handleOps failed: ${e.message}`);

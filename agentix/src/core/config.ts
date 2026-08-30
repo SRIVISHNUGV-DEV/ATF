@@ -1,21 +1,8 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
-import { join, resolve, isAbsolute } from "path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import { homedir } from "os";
 
-// AGENTIX_HOME is the root of all local state (config, DB, keys, logs).
-// Validate it to prevent path traversal or redirection attacks via env var.
-function resolveAgentixHome(): string {
-  const raw = process.env.AGENTIX_HOME;
-  if (!raw) return join(homedir(), ".agentix");
-  // Resolve to absolute path to prevent relative path confusion
-  const abs = resolve(raw);
-  // Reject paths that resolve outside the user's home or a temp directory,
-  // unless explicitly set (defense-in-depth against env injection).
-  // Allow: homedir subdirs, temp dirs, and explicit overrides.
-  return abs;
-}
-
-export const AGENTIX_HOME = resolveAgentixHome();
+export const AGENTIX_HOME = process.env.AGENTIX_HOME || join(homedir(), ".agentix");
 
 export interface AgentixConfig {
   version: string;
@@ -114,41 +101,15 @@ export function loadConfig(): AgentixConfig {
   if (!existsSync(CONFIG_PATH)) {
     return { ...DEFAULT_CONFIG };
   }
-  let raw: string;
   try {
-    raw = readFileSync(CONFIG_PATH, "utf-8");
-  } catch (e: any) {
-    // File exists but is unreadable (permissions, I/O). Surface it instead of
-    // silently masking it as defaults — the caller's settings are NOT loaded.
-    console.error(
-      `  ⚠ AgentIX: cannot read config at ${CONFIG_PATH} (${e?.message || e}). Using defaults for this run.`,
-    );
-    return { ...DEFAULT_CONFIG };
-  }
-  try {
+    const raw = readFileSync(CONFIG_PATH, "utf-8");
     const saved = JSON.parse(raw);
     return {
       ...DEFAULT_CONFIG,
       ...saved,
       contracts: { ...DEFAULT_CONFIG.contracts, ...(saved.contracts || {}) },
     };
-  } catch (e: any) {
-    // Corrupt JSON. Do NOT silently return defaults, because the next saveConfig()
-    // would then overwrite the user's file with defaults and destroy whatever was
-    // recoverable. Preserve their file as a .corrupt-<ts> backup and warn loudly.
-    try {
-      const backup = `${CONFIG_PATH}.corrupt-${Date.now()}`;
-      renameSync(CONFIG_PATH, backup);
-      console.error(
-        `  ⚠ AgentIX: config at ${CONFIG_PATH} is corrupt (${e?.message || e}).\n` +
-          `    Your file was preserved as ${backup} and defaults are in use.\n` +
-          `    Fix or delete it, then run: npx agentix config set rpcUrl <url>`,
-      );
-    } catch {
-      console.error(
-        `  ⚠ AgentIX: config at ${CONFIG_PATH} is corrupt (${e?.message || e}) and could not be backed up. Using defaults.`,
-      );
-    }
+  } catch {
     return { ...DEFAULT_CONFIG };
   }
 }
@@ -158,11 +119,7 @@ export function saveConfig(config: Partial<AgentixConfig>): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const current = loadConfig();
   const merged = { ...current, ...config };
-  // Atomic write: write to a temp file first, then rename. This prevents
-  // corruption if the process crashes mid-write (e.g. power loss, SIGKILL).
-  const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify(merged, null, 2));
-  renameSync(tmpPath, CONFIG_PATH);
+  writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2));
 }
 
 export function ensureDirectories(): void {

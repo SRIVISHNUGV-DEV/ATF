@@ -225,13 +225,13 @@ program
       log(`  ${C.bold}Runtime:${C.reset}    ${AGENTIX_HOME}`);
       log(`  ${C.bold}Database:${C.reset}   ${result.config.database.path}`);
       log(`  ${C.bold}Network:${C.reset}    ${result.config.networkName} (Chain ${result.config.chainId})`);
-      log(`  ${C.bold}Harnesses:${C.reset}  ${result.harnessesDetected} detected, ${result.harnessesConnected} already wired${opts.connectHarnesses ? "" : ` ${C.dim}(run 'npx agentix connect' to wire the rest)${C.reset}`}`);
+      log(`  ${C.bold}Harnesses:${C.reset}  ${result.harnessesDetected} detected, ${result.harnessesConnected} connected`);
       log();
       log(`  ${C.bold}Next steps:${C.reset}`);
-      log(`    1. Configure RPC:    ${C.cyan}npx agentix config set rpcUrl <your-rpc-url>${C.reset}`);
-      log(`    2. Wire AI harnesses:${C.cyan}npx agentix connect${C.reset}  ${C.dim}(optional — edits IDE configs)${C.reset}`);
-      log(`    3. Run diagnostics:  ${C.cyan}npx agentix doctor${C.reset}`);
-      log(`    4. See all commands: ${C.cyan}npx agentix --help${C.reset}`);
+      log(`    1. Configure RPC:    ${C.cyan}agentix config set rpcUrl <your-rpc-url>${C.reset}`);
+      log(`    2. Start the stack:  ${C.cyan}bun run serve${C.reset}  ${C.dim}(auto-picks free ports)${C.reset}`);
+      log(`    3. Wire AI harnesses:${C.cyan}agentix connect${C.reset}  ${C.dim}(optional — edits IDE configs)${C.reset}`);
+      log(`    4. Run diagnostics:  ${C.cyan}agentix doctor${C.reset}`);
       log();
     } else {
       log("  ╔══════════════════════════════════════════════════════════╗", C.red);
@@ -265,10 +265,10 @@ program
 // after installing a new harness post-setup.
 program
   .command("connect")
-  .description("Wire AgentIX MCP into every discovered MCP client config")
+  .description("Generate a portable MCP config any harness can use (non-destructive)")
   .option("--print", "Only print the MCP config snippet to paste into any client")
-  .option("--path <file>", "Also wire this explicit MCP config file")
-  .option("--portable-only", "Only update the portable ~/.agentix/mcp.json file")
+  .option("--path <file>", "Also wire this explicit MCP config file (with --wire-all)")
+  .option("--wire-all", "Also write the AgentIX entry into every detected harness's own config (mutates external files)")
   .action(async (opts) => {
     const mod = await import("../packages/core/harness-adapter");
     const { manualSnippet, connectUniversal, mcpServerPath, writeUniversalMCPFile, universalMCPFilePath } = mod as any;
@@ -307,22 +307,20 @@ program
       if (e?.command) claudeCmd = `claude mcp add --scope user agentix -- ${e.command} ${(e.args || []).join(" ")}`.trim();
     } catch {}
     log(`  ${C.bold}Point any MCP client at it:${C.reset}`);
-    log(`    ${C.dim}• CLI clients:${C.reset} ${C.cyan}${claudeCmd}${C.reset}`);
-    log(`    ${C.dim}• JSON-config clients:${C.reset} copy the ${C.bold}agentix${C.reset} block from that file into the client's MCP config`);
+    log(`    ${C.dim}• Claude Code:${C.reset} ${C.cyan}${claudeCmd}${C.reset}`);
+    log(`    ${C.dim}• Cursor / Windsurf / Cline / Gemini:${C.reset} copy the ${C.bold}agentix${C.reset} block from that file into the client's MCP config`);
     log(`    ${C.dim}• Any client that takes a config path:${C.reset} pass ${C.cyan}${res.path}${C.reset}`);
-    log(`    ${C.dim}• Manual snippet:${C.reset} ${C.cyan}npx agentix connect --print${C.reset}`);
+    log(`    ${C.dim}• Manual snippet:${C.reset} ${C.cyan}agentix connect --print${C.reset}`);
     log();
 
-    if (opts.portableOnly) {
-      log(`  ${C.dim}Portable-only mode: no external MCP client config files were changed.${C.reset}`);
+    if (!opts.wireAll) {
+      log(`  ${C.dim}To also write AgentIX into every detected harness's own config, re-run with${C.reset} ${C.cyan}--wire-all${C.reset}.`);
       log();
       return;
     }
 
-    // Default behavior: wire every real MCP config we can discover. This is the
-    // low-friction install path: one command installs, one command makes tools
-    // appear in clients that already support MCP.
-    log(`  ${C.bold}Wiring discovered MCP client configs:${C.reset}\n`);
+    // OPT-IN (--wire-all): the old machine-wide behavior, now explicit.
+    log(`  ${C.yellow}--wire-all:${C.reset} writing AgentIX into detected harness configs...\n`);
     let wired = 0, failed = 0;
     try {
       const { getHarnessManager } = mod as any;
@@ -340,7 +338,7 @@ program
 
       const extra = opts.path ? [opts.path] : [];
       const uni = connectUniversal(extra);
-      const named = new Set([res.path, ...found.map((h: any) => h.adapter.mcpConfigPath).filter(Boolean)]);
+      const named = new Set(found.map((h: any) => h.adapter.mcpConfigPath).filter(Boolean));
       const novel = uni.wired.filter((w: any) => !named.has(w.path));
       for (const w of novel) {
         log(`  ${C.blue}◆${C.reset} ${C.bold}${w.path}${C.reset} — ${C.green}wired${C.reset} ${C.dim}(${w.schema})${C.reset}`);
@@ -349,7 +347,7 @@ program
       for (const f of uni.failed) { log(`  ${C.yellow}⚠${C.reset} ${f.path} — ${f.message}`); failed++; }
 
       log();
-      ok(`Wired AgentIX MCP into ${wired} MCP config file(s)` + (failed ? ` (${failed} failed)` : ""));
+      ok(`Wired AgentIX MCP into ${wired} target(s)` + (failed ? ` (${failed} failed)` : ""));
       log();
     } catch (e: any) {
       err(`Harness wiring failed: ${e.message}`);
@@ -926,30 +924,17 @@ program
 
     try {
       const { spawn } = await import("child_process");
-      const { existsSync } = await import("fs");
-      const { join } = await import("path");
-
-      // Detect dev (source checkout) vs bundled (npm install) and spawn accordingly.
       const agentixDir = process.cwd();
-      const isDev = existsSync(join(agentixDir, "scripts", "serve.ts")) && existsSync(join(agentixDir, "apps", "dashboard"));
-      let proc;
-      if (isDev) {
-        proc = spawn("bun", ["x", "tsx", "scripts/serve.ts"], {
-          cwd: agentixDir,
-          detached: true,
-          stdio: "ignore",
-          shell: process.platform === "win32",
-        });
-      } else {
-        // Bundled: find server.js relative to this binary
-        const serverJs = join(__dirname, "server.js");
-        proc = spawn(process.execPath, [serverJs], {
-          cwd: __dirname,
-          detached: true,
-          stdio: "ignore",
-          shell: process.platform === "win32",
-        });
-      }
+
+      // Delegate to the launcher, which resolves free ports for BOTH the API
+      // and the dashboard and records them in the runtime manifest. This never
+      // collides with ports already in use on the user's machine.
+      const proc = spawn("bun", ["x", "tsx", "scripts/serve.ts"], {
+        cwd: agentixDir,
+        detached: true,
+        stdio: "ignore",
+        shell: process.platform === "win32",
+      });
       proc.unref();
 
       // Read back the ports the launcher published so we can print real URLs.
@@ -1187,8 +1172,8 @@ program
         if (result.success) {
           log();
           info("Next steps:");
-          log(`  npx agentix agent whitelist --wallet ${result.walletAddress} --target <contract> --selector <selector>`);
-          log(`  npx agentix agent session --wallet ${result.walletAddress} --session-key <key>`);
+          log(`  agentix agent whitelist --wallet ${result.walletAddress} --target <contract> --selector <selector>`);
+          log(`  agentix agent session --wallet ${result.walletAddress} --session-key <key>`);
         }
       } else if (action === "wallet") {
         if (opts.wallet) {

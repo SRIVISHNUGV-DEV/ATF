@@ -165,7 +165,7 @@ async function checkRuntime(): Promise<DiagnosticSection> {
     label: "Configuration",
     status: configExists ? "OK" : "WARNING",
     value: configExists ? "Found" : "Not initialized",
-    repair: configExists ? undefined : "Run: npx agentix init",
+    repair: configExists ? undefined : "Run: agentix init",
   });
   return { name: "Runtime", status: items.some((i) => i.status === "ERROR") ? "ERROR" : items.some((i) => i.status === "WARNING") ? "WARNING" : "OK", items };
 }
@@ -183,7 +183,7 @@ async function checkDatabase(): Promise<DiagnosticSection> {
       items.push({ label: "Database Size", status: size < 100 * 1024 * 1024 ? "OK" : "WARNING", value: `${(size / 1024).toFixed(1)} KB` });
     }
   } catch (e: any) {
-    items.push({ label: "Database", status: "ERROR", value: e.message, repair: "Run: npx agentix init" });
+    items.push({ label: "Database", status: "ERROR", value: e.message, repair: "Run: agentix init" });
   }
   return { name: "Database", status: items.some((i) => i.status === "ERROR") ? "ERROR" : "OK", items };
 }
@@ -202,7 +202,7 @@ async function checkDirectories(): Promise<DiagnosticSection> {
     label: "Directories",
     status: missing === 0 ? "OK" : "WARNING",
     value: `${ok}/${dirs.length} present`,
-    repair: missing > 0 ? "Run: npx agentix init" : undefined,
+    repair: missing > 0 ? "Run: agentix init" : undefined,
   });
   return { name: "Storage", status: missing === 0 ? "OK" : "WARNING", items };
 }
@@ -334,30 +334,14 @@ export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = 
   const steps: InitStep[] = [];
   const startTime = Date.now();
 
-  // A step returns one of:
-  //   string                       -> work was done; message describes it (rendered ✔)
-  //   null                         -> nothing to do; generic skip (rendered ⏭)
-  //   { skip: true, message }       -> intentionally skipped WITH a reason (rendered ⏭)
-  // The discriminated result keeps the rendered icon truthful: an intentional
-  // skip (e.g. init not wiring harnesses) must never render as a completed ✔,
-  // which would tell the user work happened that never did.
-  type StepResult = string | null | { skip: true; message: string };
-  const runStep = async (name: string, fn: () => Promise<StepResult>): Promise<void> => {
+  const runStep = async (name: string, fn: () => Promise<string | null>): Promise<void> => {
     const step: InitStep = { name, status: "running", message: "", duration: 0 };
     steps.push(step);
     const stepStart = Date.now();
     try {
-      const res = await fn();
-      if (res === null) {
-        step.status = "skip";
-        step.message = `${name} skipped`;
-      } else if (typeof res === "object") {
-        step.status = "skip";
-        step.message = res.message;
-      } else {
-        step.status = "done";
-        step.message = res;
-      }
+      const msg = await fn();
+      step.status = msg === null ? "skip" : "done";
+      step.message = msg || `${name} skipped (already exists)`;
       step.duration = Date.now() - stepStart;
     } catch (e: any) {
       step.status = "error";
@@ -380,17 +364,12 @@ export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = 
   });
 
   await runStep("Configure network", async () => {
-    // Always persist the config file so the runtime is genuinely "initialized"
-    // on disk. Without this, loadConfig() silently falls back to defaults and
-    // `doctor` reports "Configuration: Not initialized" right after a successful
-    // init — telling the user to run the very command they just ran.
-    const { saveConfig } = await import("../core/config");
     if (rpcUrl) {
+      const { saveConfig } = await import("../core/config");
       saveConfig({ rpcUrl });
       return `RPC configured: ${rpcUrl}`;
     }
-    saveConfig({});
-    return { skip: true, message: "No --rpc given; using default RPC. Set later with: agentix config set rpcUrl <url>" };
+    return null;
   });
 
   await runStep("Detect AI harnesses", async () => {
@@ -424,8 +403,8 @@ export async function initializeFullRuntime(rpcUrl?: string, connectHarnesses = 
       // Read-only init: do NOT touch external IDE/agent configs. The user can
       // opt in with `agentix init --connect-harnesses` or `agentix connect`.
       return harnessesDetected > 0
-        ? { skip: true, message: `Not wired — ${harnessesDetected} harness(es) detected. Run 'npx agentix connect' to wire them.` }
-        : { skip: true, message: "No harnesses detected; nothing to wire." };
+        ? `Skipped — ${harnessesDetected} harness(es) detected. Run 'agentix connect' to wire them.`
+        : null;
     }
     try {
       const { getHarnessManager } = await import("../../packages/core/harness-adapter");

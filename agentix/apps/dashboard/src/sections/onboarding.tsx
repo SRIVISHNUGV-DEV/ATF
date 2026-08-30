@@ -15,7 +15,7 @@ interface WizardStep {
 const STEPS: WizardStep[] = [
   { id: "welcome", title: "Welcome to AgentIX", subtitle: "The operating system for AI agents", icon: "⚡" },
   { id: "diagnostics", title: "System Check", subtitle: "Verifying your environment", icon: "🔍" },
-  { id: "harnesses", title: "MCP Configs", subtitle: "Wiring real client config files", icon: "🤖" },
+  { id: "harnesses", title: "AI Harnesses", subtitle: "Detecting connected agents", icon: "🤖" },
   { id: "wallet", title: "Connect Wallet", subtitle: "Secure your agent identity", icon: "🔐" },
   { id: "runtime", title: "Initialize Runtime", subtitle: "Setting up local infrastructure", icon: "⚙️" },
   { id: "configure", title: "Configure", subtitle: "Network and preferences", icon: "📋" },
@@ -29,14 +29,6 @@ interface WizardState {
   completedSteps: Set<number>;
   stepResults: Record<string, any>;
   isProcessing: boolean;
-}
-
-interface WiredMCPConfig {
-  path: string;
-  schema?: string;
-  created?: boolean;
-  message?: string;
-  status?: string;
 }
 
 export function OnboardingWizard() {
@@ -151,7 +143,7 @@ function StepContent({
     case "diagnostics":
       return <DiagnosticsStep onComplete={onComplete} />;
     case "harnesses":
-      return <HarnessStep onComplete={onComplete} setState={setState} />;
+      return <HarnessStep onComplete={onComplete} />;
     case "wallet":
       return <WalletStep />;
     case "runtime":
@@ -251,103 +243,84 @@ function DiagnosticsStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function HarnessStep({ onComplete, setState }: { onComplete: () => void; setState: React.Dispatch<React.SetStateAction<WizardState>> }) {
-  const [configs, setConfigs] = useState<WiredMCPConfig[]>([]);
+function HarnessStep({ onComplete }: { onComplete: () => void }) {
+  const [harnesses, setHarnesses] = useState<{ name: string; detected: boolean; connected: boolean }[]>([]);
   const [scanning, setScanning] = useState(true);
-  const [wiring, setWiring] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
-  const normalizeConfigs = (result: any): WiredMCPConfig[] => {
-    const wired = (result.wired || result.results?.wired || result.results || [])
-      .map((entry: any) => ({
-        path: entry.path || entry.mcpConfigPath || entry.configPath || "",
-        schema: entry.schema,
-        created: entry.created,
-        message: entry.message,
-        status: entry.status,
-      }))
-      .filter((entry: WiredMCPConfig) => entry.path);
-    const connected = (result.harnesses || [])
-      .filter((h: any) => h.detect?.alreadyConnected)
-      .map((h: any) => ({
-        path: h.adapter?.mcpConfigPath || h.detect?.harness?.mcpConfigPath || h.detect?.harness?.configPath || "",
-        created: false,
-        message: "Already wired",
-        status: h.detect?.harness?.status,
-      }))
-      .filter((entry: WiredMCPConfig) => entry.path);
-    const byPath = new Map<string, WiredMCPConfig>();
-    for (const entry of [...wired, ...connected]) byPath.set(entry.path, entry);
-    return Array.from(byPath.values());
-  };
-
-  const refresh = useCallback(async () => {
-    setScanning(true);
-    try {
-      const result = await fetchJSON<any>("/api/onboarding/harnesses");
-      setConfigs(normalizeConfigs(result));
-      setState((prev) => ({ ...prev, stepResults: { ...prev.stepResults, mcpConfigs: result } }));
-    } catch {
-      setConfigs([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function scan() {
+      try {
+        const result = await fetchJSON<any>("/api/onboarding/harnesses");
+        if (cancelled) return;
+        const adapters = result.adapters || result.harnesses || [];
+        const mapped = adapters.map((a: any) => ({
+          name: a.name || a.harnessId || "Unknown",
+          detected: a.detected !== false,
+          connected: a.connected === true,
+        }));
+        setHarnesses(mapped.length > 0 ? mapped : [
+          { name: "Claude Code", detected: false, connected: false },
+          { name: "MimoCode", detected: false, connected: false },
+          { name: "OpenCode", detected: false, connected: false },
+          { name: "GitHub Copilot", detected: false, connected: false },
+          { name: "Hermes", detected: false, connected: false },
+        ]);
+      } catch {
+        if (cancelled) return;
+        setHarnesses([
+          { name: "Claude Code", detected: false, connected: false },
+          { name: "MimoCode", detected: false, connected: false },
+          { name: "OpenCode", detected: false, connected: false },
+          { name: "GitHub Copilot", detected: false, connected: false },
+          { name: "Hermes", detected: false, connected: false },
+        ]);
+      }
+      if (!cancelled) setScanning(false);
     }
-    setScanning(false);
-  }, [setState]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const wireNow = useCallback(async () => {
-    setWiring(true);
-    setMessage(null);
-    try {
-      const result = await postJSON<any>("/api/onboarding/harnesses/connect", {});
-      const mapped = normalizeConfigs(result);
-      setConfigs(mapped);
-      setMessage(result.message || `Wired ${mapped.length} MCP config file(s)`);
-      setState((prev) => ({ ...prev, stepResults: { ...prev.stepResults, wiredMcpConfigs: result } }));
-      await refresh();
-      onComplete();
-    } catch (e: any) {
-      setMessage(e?.message || "Failed to wire MCP configs");
-    } finally {
-      setWiring(false);
-    }
-  }, [onComplete, refresh, setState]);
+    scan();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4 bg-neutral-800 rounded-lg px-4 py-3">
-        <div>
-          <div className="text-sm text-neutral-300 font-medium">MCP config files</div>
-          <div className="text-xs text-neutral-500">Only actual configs found or written on this machine are shown.</div>
-        </div>
-        <button onClick={wireNow} disabled={wiring} className="px-4 py-2 bg-white text-black font-medium rounded-lg hover:bg-neutral-200 disabled:opacity-50 transition-all text-sm">
-          {wiring ? "Wiring..." : "Wire MCP"}
-        </button>
-      </div>
-
-      {message && <div className="text-xs text-neutral-400 px-1">{message}</div>}
-
       {scanning ? (
         <div className="text-center py-8">
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="text-3xl inline-block">⏳</motion.div>
-          <p className="text-neutral-400 mt-4">Scanning MCP configs...</p>
-        </div>
-      ) : configs.length > 0 ? (
-        <div className="space-y-3">
-          {configs.map((cfg) => (
-            <motion.div key={`${cfg.path}-${cfg.schema || "mcp"}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-start justify-between gap-4 bg-neutral-800 rounded-lg px-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm text-neutral-200 break-all">{cfg.path}</div>
-                <div className="text-xs text-neutral-500 mt-1">{cfg.schema ? `${cfg.schema} • ` : ""}{cfg.created ? "created" : "updated"}</div>
-                {cfg.message && <div className="text-xs text-neutral-400 mt-1">{cfg.message}</div>}
-              </div>
-              <span className="text-xs px-2 py-1 rounded-full bg-green-900/40 text-green-400 whitespace-nowrap">Wired</span>
-            </motion.div>
-          ))}
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="text-3xl inline-block">
+            ⏳
+          </motion.div>
+          <p className="text-neutral-400 mt-4">Scanning for AI harnesses...</p>
         </div>
       ) : (
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-4 py-6 text-sm text-neutral-400">
-          No MCP configs found yet. Click Wire MCP to create the AgentIX portable config and wire any discovered client configs.
+        harnesses.map((h) => (
+          <motion.div
+            key={h.name}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between bg-neutral-800 rounded-lg px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-lg">{h.connected ? "✅" : h.detected ? "🔍" : "—"}</span>
+              <span className="text-sm text-neutral-300">{h.name}</span>
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full ${
+              h.connected ? "bg-green-900/50 text-green-400" : h.detected ? "bg-yellow-900/50 text-yellow-400" : "bg-neutral-700 text-neutral-500"
+            }`}>
+              {h.connected ? "Connected" : h.detected ? "Detected" : "Not found"}
+            </span>
+          </motion.div>
+        ))
+      )}
+      {!scanning && (
+        <p className="text-center text-neutral-500 text-sm mt-4">
+          {harnesses.filter((h) => h.detected).length} harness(es) detected — {harnesses.filter((h) => h.connected).length} already connected
+        </p>
+      )}
+      {!scanning && onComplete && (
+        <div className="text-center mt-2">
+          <button onClick={onComplete} className="text-xs text-neutral-400 hover:text-white transition-colors">
+            Skip — continue to next step
+          </button>
         </div>
       )}
     </div>

@@ -469,14 +469,6 @@ export function getDatabase(): Database.Database {
   // local-first runtime, and it removes an fsync from every cross-process write.
   _db.pragma("synchronous = NORMAL");
   _db.pragma("busy_timeout = 5000");
-  // Foreign keys are intentionally OFF because:
-  //   1. Existing databases may have orphan records that would block all writes
-  //   2. SQLite doesn't support ALTER TABLE ADD CONSTRAINT — enabling requires
-  //      table recreation which risks data loss on existing deployments
-  //   3. The migrateOldSchema() function copies data between tables during
-  //      migration, which would violate FK constraints mid-operation
-  // Referential integrity is enforced at the application level in the service
-  // layer and tools. See: README.md "Known Design Limitations" section.
   _db.pragma("foreign_keys = OFF");
 
   // Serialize schema creation + migrations ACROSS PROCESSES. Every harness

@@ -76,10 +76,6 @@ describe("30. Universal MCP Connector", () => {
     it("returns null when no agentix entry present", () => {
       expect(readUniversalEntry({ mcpServers: {} })).toBeNull();
     });
-    it("returns null for malformed agentix entries", () => {
-      expect(readUniversalEntry({ mcpServers: { agentix: { command: 42 } } })).toBeNull();
-      expect(readUniversalEntry({ mcp: { agentix: { command: [] } } })).toBeNull();
-    });
   });
 
   describe("connectConfigFile", () => {
@@ -102,27 +98,6 @@ describe("30. Universal MCP Connector", () => {
       const written = JSON.parse(readFileSync(p, "utf-8"));
       expect(written.mcpServers.existing).toEqual({ command: "keep" });
       expect(written.mcpServers.agentix).toBeDefined();
-    });
-
-    it("is idempotent when the existing agentix entry is launchable", () => {
-      const p = join(dir, "mcp.json");
-      const existing = { command: "node", args: [process.execPath] };
-      writeFileSync(p, JSON.stringify({ mcpServers: { agentix: existing } }));
-      const r = connectConfigFile(p);
-      expect(r.success).toBe(true);
-      const written = JSON.parse(readFileSync(p, "utf-8"));
-      expect(written.mcpServers.agentix).toEqual(existing);
-    });
-
-    it("heals a stale existing agentix file path", () => {
-      const p = join(dir, "mcp.json");
-      const stale = join(dir, "missing-mcp.js");
-      writeFileSync(p, JSON.stringify({ mcpServers: { agentix: { command: "node", args: [stale] } } }));
-      const r = connectConfigFile(p);
-      expect(r.success).toBe(true);
-      const e = readUniversalEntry(JSON.parse(readFileSync(p, "utf-8")));
-      expect(e).not.toBeNull();
-      expect(e!.args).not.toEqual([stale]);
     });
 
     it("respects the schema of an existing `servers`-style file", () => {

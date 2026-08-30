@@ -1,5 +1,5 @@
 import net from "net";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, chmodSync, renameSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { AGENTIX_HOME } from "./config";
 
@@ -25,8 +25,6 @@ export interface RuntimeManifest {
   dashboardPort?: number;
   /** Host the services bind to (always loopback). */
   host?: string;
-  /** Bearer token required by the local API server. */
-  apiToken?: string;
   /** PID of the API server process (for liveness checks / shutdown). */
   apiPid?: number;
   /** Unix seconds the manifest was last written. */
@@ -87,9 +85,7 @@ export function readRuntimeManifest(): RuntimeManifest {
   }
 }
 
-/** Merge-write the runtime manifest (creates AGENTIX_HOME if needed).
- *  Uses atomic write (tmp + rename) and 0600 permissions since the file
- *  contains the API bearer token. */
+/** Merge-write the runtime manifest (creates AGENTIX_HOME if needed). */
 export function writeRuntimeManifest(patch: RuntimeManifest): RuntimeManifest {
   const dir = dirname(RUNTIME_MANIFEST_PATH);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -98,10 +94,7 @@ export function writeRuntimeManifest(patch: RuntimeManifest): RuntimeManifest {
     ...patch,
     updatedAt: Math.floor(Date.now() / 1000),
   };
-  const tmpPath = `${RUNTIME_MANIFEST_PATH}.tmp-${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify(merged, null, 2));
-  try { chmodSync(tmpPath, 0o600); } catch { /* best-effort on Windows */ }
-  renameSync(tmpPath, RUNTIME_MANIFEST_PATH);
+  writeFileSync(RUNTIME_MANIFEST_PATH, JSON.stringify(merged, null, 2));
   return merged;
 }
 

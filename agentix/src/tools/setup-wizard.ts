@@ -259,7 +259,7 @@ async function connectHarnesses(opts: WizardOptions): Promise<StepResult> {
     console.log(box(
       `${paint("No AI harnesses detected yet.", c.white)}\n` +
       `${paint("Point any MCP client at the portable config above, or run:", c.gray)}\n` +
-      `${paint("npx agentix connect", c.cyan)}`,
+      `${paint("agentix connect", c.cyan)}`,
       { title: "Harnesses", color: c.amber },
     ));
     return { ok: true, detail: portablePath ? "portable config written" : "0 harnesses" };
@@ -272,7 +272,18 @@ async function connectHarnesses(opts: WizardOptions): Promise<StepResult> {
     console.log(`  ${sym.bullet} ${paint(h.adapter.name, c.bold)} ${paint("—", c.dim)} ${status}`);
   }
 
-  const spin2 = new Spinner("Wiring AgentIX into discovered MCP configs...").start();
+  // Writing into each harness's OWN config is opt-in and destructive-ish, so it
+  // defaults OFF (and is skipped entirely under --yes / non-TTY). The portable
+  // file above already makes AgentIX usable everywhere.
+  const doConnect = opts.yes || !isTTY
+    ? false
+    : await confirm("Also write AgentIX into each detected harness's own config? (optional)", false);
+
+  if (!doConnect) {
+    return { ok: true, detail: `${found.length} detected, portable config written` };
+  }
+
+  const spin2 = new Spinner("Plugging AgentIX MCP server into harnesses...").start();
   let wired = 0;
   let failed = 0;
   for (const h of found) {
@@ -284,19 +295,11 @@ async function connectHarnesses(opts: WizardOptions): Promise<StepResult> {
       failed++;
     }
   }
-  try {
-    const mcpMod = await import("../../packages/core/harness-adapter");
-    const uni = (mcpMod as any).connectUniversal();
-    wired += uni.wired?.length || 0;
-    failed += uni.failed?.length || 0;
-  } catch {
-    failed++;
-  }
-  spin2.succeed(`MCP wired into ${paint(String(wired), c.bold)} config file(s)`);
+  spin2.succeed(`MCP wired into ${paint(String(wired), c.bold)}/${found.length} harness(es)`);
   if (failed > 0) {
-    console.log(`  ${sym.warn} ${paint(`${failed} MCP config target(s) could not be wired automatically`, c.amber)}`);
+    console.log(`  ${sym.warn} ${paint(`${failed} harness(es) could not be wired automatically`, c.amber)}`);
   }
-  return { ok: true, detail: `${wired} config file(s) wired` };
+  return { ok: true, detail: `${wired}/${found.length} wired` };
 }
 
 // ── Step 5: summary ───────────────────────────────────────────────────
@@ -314,9 +317,9 @@ function finish(results: Record<string, StepResult>): void {
   console.log(box(lines.join("\n"), { title: "AgentIX is ready", color: c.green }));
 
   console.log(`\n  ${paint("Next steps", c.bold + c.violet)}`);
-  console.log(`    ${sym.arrow} ${paint("npx agentix doctor", c.cyan)}         run full diagnostics`);
-  console.log(`    ${sym.arrow} ${paint("npx agentix wallet create", c.cyan)}  deploy your first agent wallet`);
-  console.log(`    ${sym.arrow} ${paint("npx agentix --help", c.cyan)}         list every command`);
+  console.log(`    ${sym.arrow} ${paint("agentix doctor", c.cyan)}        run full diagnostics`);
+  console.log(`    ${sym.arrow} ${paint("agentix wallet create", c.cyan)} deploy your first agent wallet`);
+  console.log(`    ${sym.arrow} ${paint("agentix dashboard", c.cyan)}     open the web dashboard`);
   console.log(`\n  ${paint("Your AI harness can now call AgentIX tools directly via MCP.", c.gray)}\n`);
 }
 
@@ -346,7 +349,7 @@ export async function runSetupWizard(opts: WizardOptions = {}): Promise<boolean>
     ));
     const go = await confirm("Ready to begin?", true);
     if (!go) {
-      console.log(`\n  ${paint("Setup cancelled. Run", c.gray)} ${paint("npx agentix setup", c.cyan)} ${paint("anytime.", c.gray)}\n`);
+      console.log(`\n  ${paint("Setup cancelled. Run", c.gray)} ${paint("agentix setup", c.cyan)} ${paint("anytime.", c.gray)}\n`);
       return false;
     }
   }

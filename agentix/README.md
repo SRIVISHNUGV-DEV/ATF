@@ -1,278 +1,544 @@
-# AgentIX V1 — Local-First AI Agent Credential Protocol Runtime
+# AgentIX V1
 
-## Overview
+**Local-first AI agent credential protocol runtime.**
 
-AgentIX is a local-first runtime for AI agent credential management, wallet orchestration,
-and zero-knowledge proof generation. It provides a CLI, REST API, MCP server, and dashboard
-for managing ERC-4337 wallets, sessions, credentials, and on-chain transactions on Base Sepolia.
+AgentIX gives AI agents smart wallets, credentials, sessions, and risk-bound execution — without exposing private keys, without a central server, without trusting the agent.
+
+```
+npx agentix init
+```
+
+60 seconds later, your AI agent has a wallet, a session, credentials, and every action it takes is validated, simulated, risk-scored, and explained before it touches the chain.
+
+---
 
 ## Quick Start
 
 ```bash
-npm install
-npx agentix init
-npx agentix doctor
+# Install dependencies
+bun install
+
+# Build the project
+bun run build
+
+# Initialize the runtime (read-only; does not touch your IDE configs)
+bun x tsx src/index.ts init
+
+# Start the whole stack (API + dashboard) on auto-selected free ports
+bun run serve
+
+# Optional: wire detected AI harnesses (Claude Code, Cursor, ...) into AgentIX.
+# This edits their MCP configs, so it is opt-in — run it only when you want it.
+bun x tsx src/index.ts connect
 ```
 
-## Architecture
+`bun run serve` prints the URLs it picked. It prefers `http://127.0.0.1:3000`
+(dashboard) and `:3001` (API) but automatically falls back to the next free
+port if either is taken, so it never collides with something already running.
+The dashboard discovers the API port automatically — no manual wiring.
 
-- **CLI** (`src/index.ts`) — Commander.js, 30+ commands
-- **REST API** (`src/runtime/server.ts`) — localhost-bound HTTP server
-- **MCP Server** (`src/mcp/server.ts`) — Model Context Protocol for AI harness integration
-- **Dashboard** (`apps/dashboard/`) — Next.js web UI
-- **SDK** (`src/sdk/`) — ethers.js direct contract interaction
-- **Compiler** (`packages/compiler/`) — 10-stage intent-to-execution-plan pipeline
-- **ZK Prover** (`src/core/zk-prover.ts`) — Groth16/BN254 proof generation
+> **Note:** `init` is deliberately non-invasive — it sets up local storage and
+> the database but does **not** modify any external tool configuration. Harness
+> wiring only happens when you run `agentix connect` (or `init --connect-harnesses`).
+
+### Security & advisories
+
+- The API server binds to `127.0.0.1` only and has **no authentication** — it
+  trusts every local caller. Do not expose its port to a network.
+- `snarkjs` (ZK proving) pulls transitive dev-tooling dependencies
+  (`bfj`/`jsonpath`/`underscore`, `ws`, `@ethersproject` v5) that carry
+  published DoS-class advisories. They are **not reachable** from the runtime
+  proving path (`groth16.fullProve`); the top-level `ethers` is v6. `bun audit`
+  will flag them until upstream snarkjs updates its dependency tree.
 
 ---
 
-## Known Design Limitations
+## Architecture
 
-This section documents architectural decisions that have known trade-offs. Each describes
-the limitation, why it exists, and what a future version should address.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Consumption Layer                                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │
+│  │  MCP     │  │  REST    │  │  CLI     │  │  Dashboard   │    │
+│  │  (69     │  │  (40+    │  │  (20+    │  │  (Next.js    │    │
+│  │  tools)  │  │  routes) │  │  cmds)   │  │  14 + React) │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘    │
+│       │              │              │              │              │
+│  ┌────┴──────────────┴──────────────┴──────────────┴──────────┐ │
+│  │  Compiler Gateway (single write path)                      │ │
+│  │  Policy → Risk → Compile → Execute                         │ │
+│  └────────────────────────────┬───────────────────────────────┘ │
+│                               │                                  │
+│  ┌────────────────────────────┴───────────────────────────────┐ │
+│  │  Core Runtime                                               │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │ │
+│  │  │ SQLite   │  │ EventBus │  │ Merkle   │  │ ZK       │  │ │
+│  │  │ (30+     │  │ (pub/sub │  │ Trees    │  │ Prover   │  │ │
+│  │  │ tables)  │  │ history) │  │ (depth20)│  │ (Groth16)│  │ │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                               │                                  │
+│  ┌────────────────────────────┴───────────────────────────────┐ │
+│  │  Blockchain (Base Sepolia)                                  │ │
+│  │  CredentialRegistry · SessionManager · AgentWalletFactory   │ │
+│  │  CapabilityRegistry · DelegationManager · OrganizationReg   │ │
+│  │  AgentIdentity · Groth16Verifier · EntryPoint               │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### 1. Foreign Keys Disabled in SQLite
+---
 
-**Status**: Intentional, documented.
+## Directory Structure
 
-The SQLite database runs with `PRAGMA foreign_keys = OFF`. This means there is no
-database-level referential integrity between tables (e.g., credentials can reference
-non-existent organizations, sessions can reference non-existent wallets).
+```
+agentix/
+├── src/
+│   ├── index.ts                  # CLI entry (Commander.js)
+│   ├── compiler-gateway.ts       # Single write path for all operations
+│   ├── core/
+│   │   ├── database.ts           # SQLite (better-sqlite3, WAL mode)
+│   │   ├── config.ts             # Configuration management
+│   │   ├── provider.ts           # Ethers provider + signer
+│   │   ├── proxy-guard.ts        # Proxy validation
+│   │   ├── zk-prover.ts          # Groth16 proof generation
+│   │   ├── event-indexer.ts      # On-chain event indexing
+│   │   └── owner-policy.ts       # Spending policy enforcement
+│   ├── tools/                    # 15 tool modules
+│   ├── trees/                    # Merkle tree implementations
+│   ├── mcp/server.ts             # MCP server (69 tools)
+│   ├── runtime/server.ts         # HTTP API (40+ routes)
+│   └── blockchain/adapter.ts     # Contract interactions
+├── packages/
+│   ├── compiler/                 # 10-stage compilation pipeline
+│   ├── core/
+│   │   ├── eventbus/             # Pub/sub with history
+│   │   ├── backup-engine/        # Backup/restore
+│   │   ├── tree-engine/          # Merkle tree management
+│   │   ├── ai-harness/           # Intent, Policy, Safety, Router
+│   │   └── harness-adapter/      # 5 AI harness adapters
+│   └── services/                 # 6 service modules
+├── apps/dashboard/               # Next.js 14 dashboard
+├── tests/                        # 23 test files
+├── scripts/                      # Build scripts
+└── circuits/                     # ZK circuit artifacts
+```
 
-**Why**: Three reasons:
-1. Existing production databases may contain orphan records from before the schema
-   stabilized. Enabling FK would block all writes to those databases.
-2. SQLite does not support `ALTER TABLE ADD CONSTRAINT` — adding FK requires table
-   recreation, which risks data loss on existing deployments.
-3. The `migrateOldSchema()` function copies data between tables during migration,
-   which would violate FK constraints mid-operation.
+---
 
-**Mitigation**: Referential integrity is enforced at the application level in service
-layers and tools. Critical write paths validate that referenced entities exist before
-inserting.
+## CLI Commands
 
-**Future**: V2 should use a proper migration framework (e.g., Knex, Drizzle) that
-supports FK-safe migrations with rollback.
+```bash
+agentix init                          # Initialize runtime
+agentix setup                         # One-command setup (init + RPC + health)
+agentix doctor                        # Health checks
+agentix diagnostics                   # Full system diagnostics
+agentix config [get|set|show|reset]   # Configuration
+agentix org [create|get|list]         # Organizations
+agentix cred [issue|revoke|get|list]  # Credentials
+agentix session [create|validate]     # Sessions
+agentix wallet [create|get|execute]   # Wallets
+agentix tree [status|rebuild|export]  # Merkle trees
+agentix delegation [create|revoke]    # Delegations
+agentix capability [register|list]    # Capabilities
+agentix proof [generate|verify|list]  # ZK proofs
+agentix backup [create|list|restore]  # Backups
+agentix contracts                     # List contract addresses
+agentix rpc                           # Test RPC connectivity
+agentix fund                          # Fiat on-ramp options
+agentix protocol [topic]              # Protocol documentation
+agentix compile <intent-file>         # Compile intent to execution plan
+agentix plans                         # List execution plans
+agentix plan <plan-id>                # Show plan details
+agentix agent [create|wallet|session] # Quick agent setup
+```
 
-### 2. Four Independent Roots of Trust
+---
 
-**Status**: Architectural, documented.
+## MCP Server (69 Tools)
 
-The system has four independent roots of trust that are never cross-validated:
-1. **Owner private key** (`AGENTIX_PRIVATE_KEY` env var) — signs on-chain transactions
-2. **Machine master secret** (`~/.agentix/keys/master.key`) — encrypts session keys at rest
-3. **API bearer token** (`~/.agentix/runtime.json`) — authenticates REST API calls
-4. **Groth16 verification key** (`circuits/build/verification_key.json`) — verifies ZK proofs
+The MCP server speaks the [Model Context Protocol](https://modelcontextprotocol.io) and works with any MCP-compatible client (Claude Code, Cursor, VS Code, etc.).
 
-**Why**: These serve different purposes and have different lifecycle requirements. The
-owner key is user-managed (possibly in a hardware wallet), the master secret is
-machine-local, the API token is session-scoped, and the VK is circuit-specific.
+### Tool Categories
 
-**Risk**: A compromise of any one root does not automatically compromise the others,
-but there is no mechanism to detect inconsistency (e.g., API token valid but owner key
-changed).
+| Category | Tools | Description |
+|----------|-------|-------------|
+| System | 6 | Health, stats, contracts, diagnostics, RPC test, protocol docs |
+| Config | 2 | Get/show configuration |
+| Wallet | 6 | Create, list, get, balance, identity, execute |
+| Identity | 2 | Get by wallet, get by ID |
+| Session | 4 | List, validate, find mine, status |
+| Organization | 3 | List, get, get anchor |
+| Credential | 5 | List, get, history, verify, oracle |
+| Capability | 3 | List, get, verify |
+| Delegation | 4 | Verify, verify chain, list, get root |
+| Trees | 1 | Tree status |
+| Proofs | 2 | List, verify |
+| Events | 1 | Recent events |
+| Logs | 2 | Session logs, log stats |
+| Harnesses | 2 | Scan, list |
+| Transactions | 2 | List, get |
+| Bundler | 5 | Submit, status, flush, address, send |
+| Keygen | 1 | Generate agent key pair |
+| Onboarding | 2 | Status, fund options |
+| Compiler | 5 | Parse intent, compile, get plan, list plans, approve plan |
+| Policy | 5 | Get, check, set, capability envelope |
+| Dashboard-Only | 8 | Blocked operations (session create/revoke, config set, etc.) |
 
-**Future**: V2 should implement a unified identity binding that ties all four roots
-to a single verifiable identity.
+### Dashboard-Only Gate
 
-### 3. MCP Client Is Fully Trusted
+These tools are blocked for AI agents and require the owner's wallet:
 
-**Status**: Architectural, documented.
+- `agentix_session_create` — Requires owner signature
+- `agentix_session_revoke` — Requires owner signature
+- `agentix_session_prune` — System operation
+- `agentix_wallet_whitelist` — Deprecated
+- `agentix_wallet_execute_batch` — Requires owner signature
+- `agentix_config_set` — System configuration
+- `agentix_backup_create` — System operation
+- `agentix_policy_set` — Requires owner signature
 
-The MCP protocol has no authentication or authorization layer. Any MCP client (Claude Code,
-Cursor, Copilot, etc.) can call any MCP tool with arbitrary arguments. The DASHBOARD_ONLY
-gate is a code-level convention enforced in the tool handler, not a security boundary.
+---
 
-**Why**: The MCP protocol specification does not define authentication. The DASHBOARD_ONLY
-list is defense-in-depth, not a security guarantee.
+## API Routes (40+)
 
-**Risk**: A modified or malicious MCP client could:
-- Call `agentix_keygen` (now returns address only, private key stored server-side)
-- Call `agentix_bundler_send` with arbitrary calldata
-- Call `agentix_compile_intent` to probe the risk engine
-- Call `agentix_approve_plan` (now DASHBOARD_ONLY)
+### Health & Status
+- `GET /api/health` — System health check
+- `GET /api/stats` — System statistics
+- `GET /api/price` — ETH/USD price
+- `GET /api/config` — Configuration
+- `PUT /api/config` — Update configuration
 
-**Mitigations applied**:
-- `agentix_keygen` no longer returns private keys through MCP
-- `agentix_approve_plan` moved to DASHBOARD_ONLY
-- `agentix_wallet_create` moved to DASHBOARD_ONLY
-- `agentix_policy_set` requires owner signature
+### Organizations
+- `GET /api/organizations` — List organizations
+- `GET /api/organizations/:id` — Get organization
+- `POST /api/organizations/requests` — Create request
+- `POST /api/organizations/requests/:id` — Approve/reject
 
-**Future**: V2 should implement MCP tool-level authentication (e.g., per-tool permissions
-based on the harness identity).
+### Credentials
+- `GET /api/credentials` — List credentials
+- `POST /api/credentials` — Issue credential
+- `GET /api/credentials/oracle` — Oracle state
+- `GET /api/credentials/next-agent-id` — Next agent ID
+- `GET /api/credentials/orgs` — Org dropdown
+- `POST /api/credentials/update-root` — Update root
 
-### 4. SDK Bypasses Compiler, Risk Engine, and Policy Checks
+### Wallets
+- `GET /api/wallets` — List wallets
+- `POST /api/wallets` — Create wallet
+- `POST /api/wallets/link` — Link harness
+- `POST /api/wallets/create-tx` — Encode create tx
+- `POST /api/wallets/confirm` — Confirm wallet
+- `POST /api/wallets/execute-tx` — Encode execute tx
+- `POST /api/wallets/deposit-tx` — Encode deposit tx
 
-**Status**: Architectural, documented.
+### Sessions
+- `GET /api/sessions` — List sessions
+- `POST /api/sessions` — Create session
+- `DELETE /api/sessions` — Revoke session
+- `POST /api/sessions/prepare-lightweight` — Prepare params
+- `POST /api/sessions/create-lightweight-tx` — Encode session tx
 
-The SDK (`src/sdk/`) calls smart contracts directly via ethers.js, completely bypassing:
-- The 10-stage compiler pipeline
-- The risk engine
-- The owner policy system
-- The bundler risk gate
+### Proofs
+- `GET /api/proofs` — List proofs
+- `POST /api/proofs/generate` — Generate proof
+- `POST /api/proofs/verify` — Verify proof
+- `GET /api/proofs/artifacts` — ZK artifact status
 
-**Why**: The SDK is designed for programmatic use by trusted code (e.g., backend services)
-that manages its own authorization. It is not intended for use by AI agents.
+### Contracts
+- `GET /api/contracts` — List contracts
+- `GET /api/contracts/registry` — Contract registry
+- `GET /api/contracts/functions` — Contract functions
+- `POST /api/contracts/read` — Read contract
+- `POST /api/contracts/prepare-write` — Prepare write tx
 
-**Risk**: Any code using the SDK can execute arbitrary transactions without risk assessment
-or policy enforcement.
+### Trees
+- `GET /api/trees` — Tree status
+- `GET /api/trees/all` — All trees
+- `POST /api/trees/rebuild` — Rebuild tree
+- `GET /api/trees/verify` — Verify tree
+- `GET /api/trees/export` — Export tree
+- `POST /api/trees/import` — Import tree
+- `GET /api/trees/snapshots` — List snapshots
 
-**Future**: V2 should either route SDK calls through the compiler gateway or explicitly
-mark the SDK as a privileged interface with its own auth mechanism.
+### Events
+- `GET /api/events` — List events
+- `GET /api/events/indexer/status` — Indexer status
+- `POST /api/events/indexer/run` — Run indexer
+- `POST /api/events/indexer/reindex` — Reindex events
 
-### 5. On-Chain and Off-Chain Limits Can Diverge
+### Actions & Transactions
+- `GET /api/actions` — List actions
+- `GET /api/transactions` — List transactions
 
-**Status**: Architectural, documented.
+### Capabilities & Delegations
+- `GET /api/capabilities` — List capabilities
+- `POST /api/capabilities` — Create capability
+- `GET /api/delegations` — List delegations
+- `POST /api/delegations` — Create delegation
 
-The system has two independent limit systems:
-1. **On-chain**: SessionManager enforces `dailySpendLimit`, `dailyTxLimit`, `maxValue`
-   per session. These are enforced by the EVM and cannot be bypassed.
-2. **Off-chain**: Owner policy (`owner_policies` table) enforces `dailyLimit`, `perTxLimit`,
-   `allowedTargets`, `forbiddenActions`. These are enforced only by the local runtime.
+### Anomalies & Backups
+- `GET /api/anomalies` — List anomalies
+- `GET /api/backups` — List backups
+- `POST /api/backups` — Create backup
 
-**Why**: On-chain limits are per-session and enforced by the EVM. Off-chain limits are
-per-wallet and enforced by the local runtime. They serve different purposes.
+### Diagnostics
+- `GET /api/diagnostics` — Full diagnostics
 
-**Risk**: A UserOp submitted directly to the EntryPoint (bypassing the local bundler)
-would enforce on-chain limits but NOT off-chain policy. The local runtime could also
-have a stale view of on-chain state.
+### Onboarding
+- `GET /api/onboarding/status` — Onboarding status
+- `GET /api/onboarding/diagnostics` — Onboarding diagnostics
+- `GET /api/onboarding/harnesses` — Harness scan
+- `POST /api/onboarding/harnesses/connect` — Connect harnesses
+- `POST /api/onboarding/init` — Initialize runtime
+- `POST /api/onboarding/fund` — Fund options
 
-**Future**: V2 should unify these into a single policy model that is enforced both
-on-chain and off-chain.
+### Identity
+- `GET /api/identity/:wallet` — Identity lookup
+- `POST /api/identity/register` — Register identity
+- `POST /api/identity/update-metadata` — Update metadata
 
-### 6. EventBus Is In-Memory Only
+### Compiler
+- `POST /api/execute` — Compiler gateway
+- `GET /api/plans` — List plans
+- `POST /api/plans/approve` — Approve plan
+- `POST /api/plans/reject` — Reject plan
+- `POST /api/capability-envelope` — Capability envelope
 
-**Status**: Design limitation, documented.
+### Policy
+- `GET /api/policy/:wallet` — Get policy
+- `POST /api/policy` — Set policy
+- `POST /api/policy/check` — Check policy
 
-The EventBus (`packages/core/eventbus`) stores events in an in-memory array (max 1000).
-Events are lost on process restart.
+### Bundler
+- `POST /api/bundler/send` — Send UserOp
 
-**Why**: The EventBus is designed for real-time event routing within a single process
-lifetime. Persistent events are stored in the SQLite `events` table separately.
+### Debug
+- `POST /api/debug/simulate` — Simulate tx
 
-**Risk**: If a process crashes between emitting an event and persisting it to SQLite,
-the event is lost. The event indexer (which polls on-chain events) provides eventual
-consistency.
+### Runtimes
+- `GET /api/runtimes` — List runtimes
+- `POST /api/runtimes` — Create runtime
+- `DELETE /api/runtimes` — Delete runtime
+- `POST /api/runtimes/health` — Runtime health
 
-**Future**: V2 should use a persistent event log (e.g., SQLite-backed) as the primary
-event store, with the in-memory bus as a cache.
+### x402 Payments
+- `GET /api/x402/payments` — Payment history
+- `GET /api/x402/stats` — Payment stats
+- `GET /api/x402/policy` — Payment policy
+- `POST /api/x402/policy` — Set payment policy
+- `POST /api/x402/buy` — Make payment
+- `GET /api/x402/balance` — USDC balance
 
-### 7. Race Conditions in Concurrent Credential Issuance
+---
 
-**Status**: Known limitation, documented.
+## Dashboard (20 Pages)
 
-Two concurrent `issueCredential()` calls for the same organization can produce
-inconsistent state:
-1. Both compute commitments independently
-2. Both insert into the credentials table (different agent_ids — no collision)
-3. Both try to update the Merkle tree (tree state race)
-4. Both try to update the active root on-chain (second overwrites first)
+| Page | Description |
+|------|-------------|
+| Overview | System status, stats, recent events |
+| Wallets | Create, list, view wallet details |
+| Agents | AI harness detection and status |
+| Identities | On-chain identity lookup |
+| Organizations | Org registry and requests |
+| Sessions | Create, list, revoke sessions |
+| Capabilities | Capability registry |
+| Delegations | Delegation chains |
+| Transactions | Transaction history |
+| Events | Event timeline |
+| Actions | Agent action log |
+| Plans | Execution plan viewer |
+| x402 | x402 payment management |
+| Analytics | System analytics |
+| Diagnostics | Full system diagnostics |
+| Anomalies | Anomaly detection |
+| Backups | Backup management |
+| Developer | Contract registry, ABI viewer |
+| Settings | Configuration management |
+| Onboarding | 9-step setup wizard |
 
-**Why**: The system is designed for single-operator use. Concurrent credential issuance
-from multiple processes is not a supported use case.
+---
 
-**Mitigation**: The SQLite busy timeout (5000ms) serializes database writes. The on-chain
-root update is a single transaction that succeeds atomically. The tree is rebuilt from
-the credentials table on startup, which converges to the correct state.
+## Database (30+ Tables)
 
-**Future**: V2 should use database-level advisory locks or a job queue to serialize
-credential issuance per organization.
+| Table | Purpose |
+|-------|---------|
+| `config` | Key-value configuration |
+| `organizations` | Organization registry |
+| `credentials` | Credential records |
+| `wallets` | Wallet records |
+| `sessions` | Session records |
+| `proofs` | Proof records |
+| `capabilities` | Capability definitions |
+| `delegations` | Delegation records |
+| `logs` | System logs |
+| `backups` | Backup records |
+| `merkle_snapshots` | Tree snapshots |
+| `agent_actions` | Action audit log |
+| `organization_requests` | Org requests |
+| `harnesses` | AI harnesses |
+| `transactions` | Transaction records |
+| `events` | Local events |
+| `indexed_events` | On-chain events |
+| `execution_plans` | Compiler plans |
+| `compilation_cache` | Compiler cache |
+| `policy_snapshots` | Policy snapshots |
+| `indexer_checkpoints` | Indexer state |
+| `scheduler_jobs` | Job queue |
+| `owner_policies` | Spending policies |
+| `bundler_queue` | UserOp queue |
+| `identities` | Identity records |
+| `x402_payments` | x402 payments |
+| `x402_incoming_payments` | x402 incoming |
+| `x402_vouchers` | x402 vouchers |
+| `x402_used_nonces` | Nonce dedup |
+| `runtimes` | Runtime configs |
+| `metadata` | Schema version |
 
-### 8. No Key Rotation Mechanism
+---
 
-**Status**: Design limitation, documented.
+## Smart Contracts (Base Sepolia)
 
-None of the four roots of trust support rotation:
-- Owner private key: requires manual `changeOwner()` on each wallet
-- Machine master secret: changing it invalidates all encrypted session keys
-- API token: regenerated on each server restart (not persisted across restarts by default)
-- Verification key: requires redeploying the Groth16Verifier contract
+| Contract | Proxy | Purpose |
+|----------|-------|---------|
+| Groth16Verifier | `0x7bA15966B895BEb00B291a73Aa672918D1E27cf9` | ZK proof verification |
+| CredentialRegistry | `0x3b738E79053eD2993A9c061Dd2A4AA85A9962378` | Credential Merkle roots |
+| SessionManager | `0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf` | ZK + lightweight sessions |
+| AgentWalletFactory | `0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88` | Deterministic wallet deploy |
+| AgentWallet (impl) | `0x206630bC8C366b94d4F73382f9F1742795F49de2` | ERC-4337 smart account |
+| CapabilityRegistry | `0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d` | Capability definitions |
+| DelegationManager | `0x2F7e35D096b43A002964bB6e343494188ca51D11` | Trust delegation chains |
+| OrganizationRegistry | `0x982EAcfF15e6C326F534eB671B009546bae3D13a` | Organization registry |
+| OrgCredentialAnchor | `0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F` | Org credential anchor |
+| AgentIdentity | `0x5eb3688D61187550400A940D43461e7984Ca405c` | Agent identity |
+| EntryPoint | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` | ERC-4337 EntryPoint |
 
-**Future**: V2 should implement automated key rotation with grace periods.
+---
 
-### 9. Two Separate Database Systems
+## ZK Circuit
 
-**Status**: Architectural, documented.
+**Circuit:** `credential_V1.circom` (depth-20 Merkle + SMT revocation, Poseidon hashes)
 
-The runtime uses SQLite (`better-sqlite3`) for state persistence. The SDK uses a JSON
-file database (`src/sdk/database.ts`) that writes to `.agentix/db.json`. These are
-completely independent and can diverge.
+**Public Signals (7):**
+1. `activeRoot` — Active credential Merkle root
+2. `revokedRoot` — Revoked credential SMT root
+3. `maxValue` — Maximum transaction value
+4. `sessionExpiry` — Session expiry timestamp
+5. `wallet` — Agent wallet address
+6. `credentialVersion` — Always 1
+7. `nullifier` — Poseidon3(orgId, secret, sessionNonce)
 
-**Why**: The SDK is a standalone library that doesn't depend on the runtime. It uses a
-simple JSON file for portability.
+**Poseidon Usage (all array-arg form, canonical iden3 vectors):**
+- Commitment: `Poseidon7(agentId, orgId, budgetLimit, wallet, expiry, credVersion, secret)`
+- Nullifier: `Poseidon3(orgId, secret, sessionNonce)`
+- Revocation Key: `Poseidon2(secret, 0) mod 2^64`
+- Merkle Hash: `Poseidon2(left, right)`
 
-**Risk**: If both the SDK and the runtime are used against the same wallet, their views
-of wallet state can diverge.
+---
 
-**Future**: V2 should unify on SQLite or provide explicit synchronization between the two.
+## Environment Variables
 
-### 10. TOCTOU Gap in Merkle Root Freshness
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RPC_URL` | Base Sepolia RPC endpoint | `https://sepolia.base.org` |
+| `RPC_FALLBACK_URL` | Fallback RPC endpoint | `https://base-sepolia-rpc.publicnode.com` |
+| `PRIVATE_KEY` | Backend signer wallet key | (required for writes) |
+| `AGENTIX_HOME` | AgentIX home directory | `~/.agentix` |
+| `AGENTIX_CIRCUITS_DIR` | ZK circuit artifacts directory | (auto-detected) |
 
-**Status**: Known limitation, documented.
+---
 
-ZK proof generation reads the current on-chain Merkle root, then generates a proof
-against it. Between reading the root and submitting the proof, another credential
-issuance could update the root, causing the proof to verify against stale state.
+## Configuration
 
-**Why**: This is inherent to any system that generates proofs off-chain against on-chain
-state. The window is typically seconds.
+Configuration is stored at `~/.agentix/config/agentix.config.json`:
 
-**Mitigation**: The on-chain verifier rejects proofs whose public signals don't match
-the current root. The proof simply needs to be regenerated.
+```json
+{
+  "version": "1.0.0",
+  "chainId": 84532,
+  "rpcUrl": "https://sepolia.base.org",
+  "rpcFallbackUrl": "https://base-sepolia-rpc.publicnode.com",
+  "networkName": "baseSepolia",
+  "contracts": {
+    "groth16Verifier": "0x7bA15966B895BEb00B291a73Aa672918D1E27cf9",
+    "credentialRegistry": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
+    "sessionManager": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
+    "agentWalletFactory": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
+    "agentWalletImplementation": "0x206630bC8C366b94d4F73382f9F1742795F49de2",
+    "capabilityRegistry": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
+    "delegationManager": "0x2F7e35D096b43A002964bB6e343494188ca51D11",
+    "organizationRegistry": "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
+    "organizationCredentialAnchor": "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
+    "agentIdentity": "0x5eb3688D61187550400A940D43461e7984Ca405c",
+    "entryPoint": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+  },
+  "database": {
+    "path": "~/.agentix/db/agentix.db"
+  },
+  "backup": {
+    "path": "~/.agentix/backups"
+  },
+  "logs": {
+    "path": "~/.agentix/logs"
+  }
+}
+```
 
-**Future**: V2 could implement a root-staleness check that aborts proof generation if
-the root changes during computation.
+---
+
+## Testing
+
+```bash
+# Run all tests
+bun x vitest run
+
+# Run E2E tests
+bun x tsx tests/e2e.test.ts
+
+# Run specific test
+bun x vitest run tests/circuit-compat.test.ts
+
+# Run soak test (24-hour continuous operation)
+bun x tsx tests/soak-test.ts --duration=24h --interval=5m
+```
+
+### Test Results (Latest)
+
+- **TypeScript Compilation:** ✅ Clean (both agentix/ and apps/dashboard/)
+- **Unit Tests:** ✅ 254 passed (22 files)
+- **E2E Tests:** ✅ 31/31 pass
+- **Circuit Compatibility:** ✅ All Poseidon vectors verified
 
 ---
 
 ## Security Model
 
-### Authentication
-
-| Interface | Mechanism |
-|-----------|-----------|
-| CLI | None (local process, filesystem ACL) |
-| REST API | Bearer token (timing-safe comparison) |
-| MCP Server | None (stdio transport, trust the client) |
-| Dashboard | Bearer token (proxied through Next.js) |
-| SDK | None (caller provides signer) |
-| On-chain | ECDSA signatures (EIP-191, EIP-712) |
-
-### Authorization
-
-| Action | Who Can Do It | Where Enforced |
-|--------|--------------|----------------|
-| Set owner policy | Wallet owner (EIP-191 signature required) | Application level |
-| Create session | Wallet owner (via dashboard) | DASHBOARD_ONLY gate + on-chain |
-| Revoke session | Wallet owner (via dashboard) | DASHBOARD_ONLY gate + on-chain |
-| Approve plan | Human (via dashboard) | DASHBOARD_ONLY gate |
-| Create wallet | Human (via dashboard) | DASHBOARD_ONLY gate |
-| Issue credential | Issuer (on-chain) | Smart contract onlyIssuer |
-| Execute transaction | Session key or owner key | On-chain onlyOwnerOrEntryPoint |
-
-### Cryptographic Primitives
-
-| Primitive | Use | Library |
-|-----------|-----|---------|
-| Groth16/BN254 | Credential proofs | snarkjs |
-| Poseidon | Commitment, nullifier, revocation key | circomlibjs |
-| AES-256-GCM | Session key encryption at rest | Node.js crypto |
-| ECDSA/secp256k1 | Transaction signing, policy signing | ethers.js |
-| SHA-256 | Artifact integrity, backup checksums | Node.js crypto |
-| scrypt | Master secret derivation from env var | Node.js crypto |
+| Principle | Implementation |
+|-----------|----------------|
+| No raw secrets on-chain | ZK proofs verify credential membership without revealing the secret |
+| Credentials ≠ Capabilities | CapabilityRegistry is separate from CredentialRegistry |
+| Owner signature required | Every critical action requires an EIP-191 wallet signature |
+| Session boundaries | Per-session maxValue, daily spend/tx limits, expiresAt |
+| Credential revocation | Sparse Merkle tree prevents future session creation |
+| Delegation depth limits | Configurable max chain depth (default 5, max 10) |
+| Cascade revocation | Revoking a parent delegation revokes all children |
+| Nonce protection | Every signed action has a unique nonce |
+| Encrypted session keys | Agent session keys encrypted at rest with AES-256-GCM |
+| Audit trail | Every action logged with wallet address, timestamp, risk level |
 
 ---
 
-## Development
-
-```bash
-bun install
-bun run dev          # Start API server + dashboard
-bun run test         # Run all tests
-bun run test:unit    # Run unit tests only
-bun run build        # Build for production
-```
-
 ## License
 
-BUSL-1.1 — see LICENSE file.
+Apache License 2.0
+
+---
+
+## Documentation
+
+- [CHANGELOG.md](./CHANGELOG.md) — Version history
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — Deployment instructions
+- [MIGRATION.md](./MIGRATION.md) — Migration guide
+- [RECOVERY.md](./RECOVERY.md) — Disaster recovery
+- [SEQUENCE.md](./SEQUENCE.md) — Sequence diagrams
+- [RELEASE_VALIDATION_REPORT.md](./RELEASE_VALIDATION_REPORT.md) — Beta-1 release validation

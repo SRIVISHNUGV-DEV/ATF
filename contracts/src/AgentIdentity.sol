@@ -5,7 +5,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 error IdentityAlreadyRegistered();
 error IdentityAlreadyActive();
@@ -33,7 +33,7 @@ contract AgentIdentity is
     PausableUpgradeable,
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
-    ReentrancyGuardUpgradeable
+    ReentrancyGuard
 {
     struct Identity {
         address wallet;
@@ -70,7 +70,6 @@ contract AgentIdentity is
     function initialize(address owner_, address walletFactory_) public initializer {
         __Ownable_init(owner_);
         __Pausable_init();
-        __ReentrancyGuard_init();
         walletFactory = walletFactory_;
     }
 

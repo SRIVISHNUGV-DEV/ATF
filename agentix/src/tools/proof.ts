@@ -1,5 +1,4 @@
 import { ethers } from "ethers";
-import { randomBytes } from "crypto";
 import { runQuery, runSingle, runExecute } from "../core/database";
 import { getActiveTree } from "../trees/active-tree";
 import { getRevokedTree } from "../trees/revoked-tree";
@@ -295,8 +294,8 @@ export async function generateLocalProof(
   walletAddress: string,
   sessionExpiry: number
 ): Promise<ProofResult> {
-  // Use a cryptographically random session nonce
-  const sessionNonce = BigInt("0x" + randomBytes(16).toString("hex"));
+  // Use a random session nonce if not provided
+  const sessionNonce = BigInt(Math.floor(Math.random() * 1_000_000_000) + 1);
   return generateProof(organizationId, agentId, walletAddress, sessionExpiry, sessionNonce);
 }
 

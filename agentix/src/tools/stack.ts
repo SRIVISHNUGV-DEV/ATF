@@ -15,7 +15,7 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve } from "path";
-import { readRuntimeManifest, writeRuntimeManifest, findFreePort } from "../core/ports";
+import { readRuntimeManifest } from "../core/ports";
 
 export interface StackStatus {
   running: boolean;
@@ -46,34 +46,23 @@ async function apiHealthy(baseUrl: string, timeoutMs = 2500): Promise<boolean> {
   }
 }
 
-interface PackageRoot {
-  dir: string;
-  /** true when running from a source checkout (scripts/serve.ts + apps/dashboard exist). */
-  dev: boolean;
-}
-
 /**
- * Resolve the AgentIX package root. Returns both the path and whether it's a
- * source checkout (dev) or a bundled npm install.
+ * Resolve the AgentIX package root that contains scripts/serve.ts and
+ * apps/dashboard. In the dev tree this walks up from this file; in a bundled
+ * install those scripts aren't present and we say so explicitly.
  */
-function findPackageRoot(): PackageRoot | null {
+function findPackageRoot(): string | null {
+  // From src/tools/stack.ts, the package root is two levels up. When bundled to
+  // dist-publish/index.js, __dirname is the bundle dir. Check a few candidates.
   const candidates = [
     resolve(__dirname, "..", ".."), // src/tools -> package root (dev)
-    resolve(__dirname, ".."), // bundle/..
-    resolve(__dirname), // bundle dir (bundled MCP server)
+    resolve(__dirname, ".."), // bundle/.. 
+    resolve(__dirname), // bundle dir
     process.cwd(),
   ];
   for (const dir of candidates) {
-    const hasServe = existsSync(join(dir, "scripts", "serve.ts"));
-    const hasDashboard = existsSync(join(dir, "apps", "dashboard", ".next"));
-    const hasServerJs = existsSync(join(dir, "server.js"));
-    // Dev = source checkout with serve.ts AND dashboard, but NO prebuilt server.js.
-    // When server.js exists, we're in a bundled npm install — use the prebuilt
-    // entrypoint even if serve.ts was copied alongside it for reference.
-    const isDev = hasServe && hasDashboard && !hasServerJs;
-    const isBundled = hasServerJs;
-    if (isDev || isBundled) {
-      return { dir, dev: isDev };
+    if (existsSync(join(dir, "scripts", "serve.ts")) && existsSync(join(dir, "apps", "dashboard"))) {
+      return dir;
     }
   }
   return null;
@@ -127,105 +116,30 @@ export async function startStack(opts: { prod?: boolean; openBrowser?: boolean }
   }
 
   // 2. Locate the package root that carries the launcher + dashboard.
-  const pkg = findPackageRoot();
-  if (!pkg) {
+  const root = findPackageRoot();
+  if (!root) {
     return {
       running: false,
       alreadyRunning: false,
       message:
-        "Could not locate the AgentIX package. " +
+        "Could not locate the AgentIX launcher (scripts/serve.ts) or dashboard (apps/dashboard). " +
         "Start the stack from your AgentIX source checkout with: bun run serve",
     };
   }
 
   // 3. Spawn the launcher detached. Its stdio is ignored so the parent (this
   //    MCP call) can return; serve.ts owns the API + dashboard child processes.
-  let child;
-  if (pkg.dev) {
-    // Source checkout: use the full launcher (API + dashboard)
-    const args = ["x", "tsx", join("scripts", "serve.ts")];
-    if (opts.prod) args.push("--prod");
-    if (!opts.openBrowser) args.push("--no-open");
-    child = spawn("bun", args, {
-      cwd: pkg.dir,
-      env: { ...process.env },
-      stdio: "ignore",
-      detached: true,
-      shell: process.platform === "win32",
-    });
-  } else {
-    // Bundled npm install: start API server, then dashboard if present.
-    // Step 1: Start the API server (node server.js).
-    const serverJs = join(pkg.dir, "server.js");
-    const apiProc = spawn(process.execPath, [serverJs], {
-      cwd: pkg.dir,
-      env: { ...process.env },
-      stdio: "ignore",
-      detached: true,
-      shell: process.platform === "win32",
-    });
-    apiProc.unref();
-    child = apiProc; // for the manifest poll below
+  const args = ["x", "tsx", join("scripts", "serve.ts")];
+  if (opts.prod) args.push("--prod");
+  if (!opts.openBrowser) args.push("--no-open");
 
-    // Step 2: If the dashboard exists, start it after the API is up.
-    const dashboardDir = join(pkg.dir, "apps", "dashboard");
-    const hasDashboard = existsSync(join(dashboardDir, ".next"));
-    if (hasDashboard) {
-      // Wait for the API to publish its port, then start the dashboard.
-      // This runs in the background — we don't block the caller.
-      (async () => {
-        const host = "127.0.0.1";
-        let apiPort = 0;
-        for (let i = 0; i < 40 && !apiPort; i++) {
-          await sleep(500);
-          const m = readRuntimeManifest();
-          if (m.apiPort) apiPort = m.apiPort;
-        }
-        if (!apiPort) return;
-
-        const apiUrl = `http://${host}:${apiPort}`;
-        const dashPort = parseInt(process.env.AGENTIX_DASHBOARD_UI_PORT || "3000", 10);
-
-        // Resolve next binary: prefer root node_modules (where we install it
-        // as a dependency of the published package), fall back to dashboard-local.
-        let nextBin: string | null = null;
-        try {
-          const req = require("module").createRequire(join(pkg.dir, "package.json"));
-          const pkgPath = req.resolve("next/package.json");
-          const nextPkg = req("next/package.json");
-          const binRel = typeof nextPkg.bin === "string" ? nextPkg.bin : nextPkg.bin?.next;
-          if (binRel) nextBin = join(pkgPath, "..", binRel);
-        } catch { /* next not found */ }
-
-        let dashProgram: string;
-        let dashArgs: string[];
-        if (nextBin) {
-          dashProgram = process.execPath;
-          dashArgs = [nextBin, "start", "-p", String(dashPort)];
-        } else {
-          // Last resort: try npx
-          dashProgram = process.platform === "win32" ? "npx.cmd" : "npx";
-          dashArgs = ["next@14", "start", "-p", String(dashPort)];
-        }
-
-        const dash = spawn(dashProgram, dashArgs, {
-          cwd: dashboardDir,
-          env: {
-            ...process.env,
-            AGENTIX_API_URL: apiUrl,
-            AGENTIX_API_TOKEN: readRuntimeManifest().apiToken || "",
-          },
-          stdio: "ignore",
-          detached: true,
-          shell: false,
-        });
-        dash.unref();
-
-        // Record the dashboard port in the manifest.
-        writeRuntimeManifest({ dashboardPort: dashPort, host });
-      })();
-    }
-  }
+  const child = spawn("bun", args, {
+    cwd: root,
+    env: { ...process.env },
+    stdio: "ignore",
+    detached: true,
+    shell: process.platform === "win32",
+  });
   child.unref();
 
   // 4. Poll the manifest until the API port appears AND answers health, then

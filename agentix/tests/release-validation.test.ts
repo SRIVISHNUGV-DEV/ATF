@@ -1,29 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
 
 let serverProcess: any;
 const API = "http://localhost:3001";
-
-function authHeaders(): HeadersInit {
-  try {
-    const home = process.env.AGENTIX_HOME || join(homedir(), ".agentix");
-    const manifest = join(home, "runtime.json");
-    if (!existsSync(manifest)) return {};
-    const token = JSON.parse(readFileSync(manifest, "utf-8")).apiToken;
-    return token ? { authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
-}
-
-function apiFetch(path: string, init: RequestInit = {}) {
-  return fetch(`${API}${path}`, {
-    ...init,
-    headers: { ...authHeaders(), ...(init.headers || {}) },
-  });
-}
 
 beforeAll(async () => {
   try {
@@ -102,7 +80,7 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
 
     it("Stats endpoint works", async () => {
       await check("Stats", async () => {
-        const res = await apiFetch("/api/stats");
+        const res = await fetch(`${API}/api/stats`);
         expect(res.ok).toBe(true);
       });
     });
@@ -132,9 +110,7 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
     for (const ep of endpoints) {
       it(`${ep.method} ${ep.path}`, async () => {
         await check(`${ep.method} ${ep.path}`, async () => {
-          const res = ep.path === "/api/health"
-            ? await fetch(`${API}${ep.path}`, { method: ep.method })
-            : await apiFetch(ep.path, { method: ep.method });
+          const res = await fetch(`${API}${ep.path}`, { method: ep.method });
           expect(res.ok).toBe(true);
         });
       });
@@ -241,7 +217,7 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
   describe("G7: Zero Silent Failures", () => {
     it("unknown routes return 404", async () => {
       await check("404 Handling", async () => {
-        const res = await apiFetch("/api/nonexistent");
+        const res = await fetch(`${API}/api/nonexistent`);
         expect(res.status).toBe(404);
       });
     });
@@ -249,7 +225,7 @@ describe("RELEASE VALIDATION: GO / NO-GO", () => {
     it("CORS headers present", async () => {
       await check("CORS", async () => {
         const res = await fetch(`${API}/api/health`);
-        expect(res.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1");
+        expect(res.headers.get("access-control-allow-origin")).toBe("*");
       });
     });
   });
