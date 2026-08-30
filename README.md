@@ -63,32 +63,32 @@ The dashboard discovers the API port automatically — no manual wiring.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Consumption Layer                                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │
-│  │  MCP     │  │  REST    │  │  CLI     │  │  Dashboard   │    │
-│  │  (69     │  │  (40+    │  │  (20+    │  │  (Next.js    │    │
-│  │  tools)  │  │  routes) │  │  cmds)   │  │  14 + React) │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘    │
-│       │              │              │              │              │
+│  Consumption Layer                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐     │
+│  │  MCP     │  │  REST    │  │  CLI     │  │  Dashboard   │     │
+│  │  (69     │  │  (40+    │  │  (20+    │  │  (Next.js    │     │
+│  │  tools)  │  │  routes) │  │  cmds)   │  │  14 + React) │     │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘     │
+│       │              │              │              │            │
 │  ┌────┴──────────────┴──────────────┴──────────────┴──────────┐ │
 │  │  Compiler Gateway (single write path)                      │ │
 │  │  Policy → Risk → Compile → Execute                         │ │
 │  └────────────────────────────┬───────────────────────────────┘ │
-│                               │                                  │
+│                               │                                 │
 │  ┌────────────────────────────┴───────────────────────────────┐ │
-│  │  Core Runtime                                               │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │ │
-│  │  │ SQLite   │  │ EventBus │  │ Merkle   │  │ ZK       │  │ │
-│  │  │ (30+     │  │ (pub/sub │  │ Trees    │  │ Prover   │  │ │
-│  │  │ tables)  │  │ history) │  │ (depth20)│  │ (Groth16)│  │ │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │ │
+│  │  Core Runtime                                              │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │ │
+│  │  │ SQLite   │  │ EventBus │  │ Merkle   │  │ ZK       │    │ │
+│  │  │ (30+     │  │ (pub/sub │  │ Trees    │  │ Prover   │    │ │
+│  │  │ tables)  │  │ history) │  │ (depth20)│  │ (Groth16)│    │ │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │ │
 │  └────────────────────────────────────────────────────────────┘ │
-│                               │                                  │
+│                               │                                 │
 │  ┌────────────────────────────┴───────────────────────────────┐ │
-│  │  Blockchain (Base Sepolia)                                  │ │
-│  │  CredentialRegistry · SessionManager · AgentWalletFactory   │ │
-│  │  CapabilityRegistry · DelegationManager · OrganizationReg   │ │
-│  │  AgentIdentity · Groth16Verifier · EntryPoint               │ │
+│  │  Blockchain (Base Sepolia)                                 │ │
+│  │  CredentialRegistry · SessionManager · AgentWalletFactory  │ │
+│  │  CapabilityRegistry · DelegationManager · OrganizationReg  │ │
+│  │  AgentIdentity · Groth16Verifier · EntryPoint              │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
