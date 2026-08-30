@@ -275,4 +275,4 @@ bun run build        # Build for production
 
 ## License
 
-BUSL-1.1 — see LICENSE file.
+Apache 2.0 — see LICENSE file.
