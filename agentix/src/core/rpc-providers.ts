@@ -59,7 +59,7 @@ export const RPC_PROVIDERS: RpcProvider[] = [
     id: "alchemy",
     name: "Alchemy",
     kind: "key",
-    urlTemplate: "https://base-sepolia.g.alchemy.com/v2/{KEY}",
+    urlTemplate: "{{https://base-sepolia.g.alchemy.com/v2/{KEY}}}",
     hint: "Paste your Alchemy API key (the token after /v2/)",
     signupUrl: "https://dashboard.alchemy.com/",
     docs: "https://docs.alchemy.com/reference/base-api-quickstart",
@@ -69,7 +69,7 @@ export const RPC_PROVIDERS: RpcProvider[] = [
     id: "infura",
     name: "Infura",
     kind: "key",
-    urlTemplate: "https://base-sepolia.infura.io/v3/{KEY}",
+    urlTemplate: "{{https://base-sepolia.infura.io/v3/{KEY}}}",
     hint: "Paste your Infura API key (the project ID after /v3/)",
     signupUrl: "https://app.infura.io/",
     docs: "https://docs.metamask.io/services/reference/base/",
@@ -79,7 +79,7 @@ export const RPC_PROVIDERS: RpcProvider[] = [
     id: "ankr",
     name: "Ankr",
     kind: "key",
-    urlTemplate: "https://rpc.ankr.com/base_sepolia/{KEY}",
+    urlTemplate: "{{https://rpc.ankr.com/base_sepolia/{KEY}}}",
     hint: "Paste your Ankr API key (leave blank to use Ankr's public endpoint)",
     signupUrl: "https://www.ankr.com/rpc/",
     docs: "https://www.ankr.com/docs/rpc-service/chains/chains-list/",
@@ -124,10 +124,16 @@ export function buildRpcUrl(providerId: string, secret: string): string | null {
   return provider.urlTemplate!.replace("{KEY}", encodeURIComponent(trimmed));
 }
 
+/**
+ * Validate that a user-supplied RPC endpoint uses HTTPS. Rejects plain
+ * http:// (these URLs typically embed a provider API key in the path/query,
+ * so an unencrypted connection would leak that key on the wire) and any
+ * other/invalid scheme.
+ */
 export function isValidHttpsUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.protocol === "https:" || u.protocol === "http:";
+    return u.protocol === "https:";
   } catch {
     return false;
   }
