@@ -54,6 +54,7 @@ const USDC_DECIMALS = 6;
 const DEFAULT_VOUCHER_EXPIRY = 300; // 5 minutes
 const MAX_BATCH_SIZE = 50;
 const MAX_VOUCHER_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const DAILY_SPEND_WINDOW_SECONDS = 24 * 60 * 60; // trailing 24h window for daily spend enforcement
 
 const USDC_ADDRESSES: Record<string, string> = {
   "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
@@ -119,12 +120,38 @@ interface SessionKeyInfo {
   expiry: number;
   verifiedAt: number;
   dailySpendLimit: string;
+  /**
+   * NOT used for enforcement — kept only for interface stability. Real daily
+   * spend is always recomputed live from persisted voucher records via
+   * getDailySpendUsed() at the point of enforcement (verifyVoucher), because
+   * a cached value here would go stale within the SESSION_KEY_CACHE_TTL
+   * window and could be bypassed.
+   */
   dailySpendUsed: string;
 }
 
 const sessionKeyCache = new Map<string, SessionKeyInfo>();
 
 const SESSION_KEY_CACHE_TTL = 60_000; // 1 minute
+
+/**
+ * Compute the real amount already spent by this wallet+session key over the
+ * trailing 24h window, from persisted voucher records (pending or settled).
+ * This is the enforcement source of truth for the daily spend limit — never
+ * trust a cached/static value for this check.
+ */
+function getDailySpendUsed(walletAddress: string, sessionKey: string): bigint {
+  const since = Math.floor(Date.now() / 1000) - DAILY_SPEND_WINDOW_SECONDS;
+  const row = runSingle<{ total: string | number }>(
+    `SELECT COALESCE(SUM(CAST(amount AS INTEGER)), 0) as total
+     FROM x402_vouchers
+     WHERE wallet = ? AND session_key = ? AND status IN ('pending', 'settled') AND created_at >= ?`,
+    walletAddress,
+    sessionKey,
+    since
+  );
+  return BigInt(row?.total ?? 0);
+}
 
 /**
  * Verify that a session key is authorized for a wallet.
@@ -163,6 +190,7 @@ export async function verifySessionKey(
       expiry: session.expiry,
       verifiedAt: Date.now(),
       dailySpendLimit: session.daily_spend_limit,
+      // Not used for enforcement — see getDailySpendUsed().
       dailySpendUsed: "0",
     };
     sessionKeyCache.set(cacheKey, info);
@@ -311,9 +339,11 @@ export async function verifyVoucher(
     return { valid: false, error: sessionCheck.error };
   }
 
-  // 6. Check daily spend limit
+  // 6. Check daily spend limit — recomputed live from persisted voucher
+  //    records (never trust the cached sessionInfo.dailySpendUsed field,
+  //    which is not tracked and would make this check a permanent no-op).
   if (sessionCheck.sessionInfo) {
-    const dailyUsed = BigInt(sessionCheck.sessionInfo.dailySpendUsed || "0");
+    const dailyUsed = getDailySpendUsed(voucher.wallet, voucher.sessionKey);
     const dailyLimit = BigInt(sessionCheck.sessionInfo.dailySpendLimit || "0");
     const voucherAmount = BigInt(voucher.amount);
 
