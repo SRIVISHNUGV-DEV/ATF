@@ -42,6 +42,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     event EntryPointProposed(address indexed previous, address indexed next, uint256 activationTime);
     event EntryPointUpdated(address indexed oldEP, address indexed newEP);
     event IdentityRegistrationFailed(address indexed wallet, address indexed agentIdentity);
+    event AgentIdentityUpdated(address indexed oldAgentIdentity, address indexed newAgentIdentity);
 
     uint256 public constant TIMELOCK_DELAY = 2 days;
 
@@ -193,7 +194,9 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     /// @param agentIdentity_ The AgentIdentity contract address.
     function setAgentIdentity(address agentIdentity_) external onlyOwner {
         if (agentIdentity_ == address(0)) revert InvalidAgentIdentityError();
+        address old = agentIdentity;
         agentIdentity = agentIdentity_;
+        emit AgentIdentityUpdated(old, agentIdentity_);
     }
 
     /// @dev Internal wallet creation logic. Deploys a deterministic clone and initializes it.
