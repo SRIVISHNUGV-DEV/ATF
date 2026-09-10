@@ -20,6 +20,11 @@
  * the current ABI/platform/arch on first DB open and caches it. This is done
  * synchronously (via a spawned Node child using only built-ins — no curl/tar
  * dependency) so the sync getDatabase() path keeps working unchanged.
+ *
+ * Integrity: before writing the cached addon to disk, the fetch script also
+ * downloads the release's official SHASUMS256.txt and verifies the tarball's
+ * sha256 against the published checksum for that exact asset name. This
+ * prevents loading a tampered/MITM'd binary as a native addon.
  */
 import { existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -107,9 +112,12 @@ export function resolveSqliteBinding(): string | null {
  * Node version, not just the ABIs we vendor.
  *
  * The download runs synchronously in a spawned Node child (built-ins only: https,
- * zlib, fs — no curl, no tar, no extra deps) so the existing sync DB-open path is
- * unchanged. On any failure it returns whatever resolveSqliteBinding() finds (may
- * be null), letting the caller degrade to better-sqlite3's own resolution.
+ * zlib, fs, crypto — no curl, no tar, no extra deps) so the existing sync DB-open
+ * path is unchanged. The child also verifies the downloaded tarball's sha256
+ * against the release's published SHASUMS256.txt before extracting anything. On
+ * any failure (network, checksum mismatch, missing entry) it returns whatever
+ * resolveSqliteBinding() finds (may be null), letting the caller degrade to
+ * better-sqlite3's own resolution.
  */
 export function ensureSqliteBinding(): string | null {
   const existing = resolveSqliteBinding();
@@ -125,10 +133,12 @@ export function ensureSqliteBinding(): string | null {
 }
 
 /**
- * Download + extract the official better-sqlite3 prebuilt for the current
- * ABI/platform/arch into `dest`. Runs in a spawned Node child using only built-in
- * modules, so it needs no external tools and blocks (spawnSync) until finished.
- * Returns true on success.
+ * Download + verify + extract the official better-sqlite3 prebuilt for the
+ * current ABI/platform/arch into `dest`. Runs in a spawned Node child using
+ * only built-in modules (https, zlib, fs, crypto), so it needs no external
+ * tools and blocks (spawnSync) until finished. The downloaded tarball's
+ * sha256 is checked against the release's official SHASUMS256.txt before the
+ * addon is written to disk. Returns true on success.
  */
 function fetchPrebuiltSync(dest: string): boolean {
   const abi = process.versions.modules;
@@ -136,19 +146,26 @@ function fetchPrebuiltSync(dest: string): boolean {
   const arch = process.arch;
   // Official release asset naming: better-sqlite3-v<ver>-node-v<abi>-<plat>-<arch>.tar.gz
   const asset = `better-sqlite3-v${BSQLITE_VERSION}-node-v${abi}-${platform}-${arch}.tar.gz`;
-  const url = `https://github.com/WiseLibs/better-sqlite3/releases/download/v${BSQLITE_VERSION}/${asset}`;
+  const releaseBase = `https://github.com/WiseLibs/better-sqlite3/releases/download/v${BSQLITE_VERSION}`;
+  const url = `${releaseBase}/${asset}`;
+  const shasumsUrl = `${releaseBase}/SHASUMS256.txt`;
 
   const dir = dirname(dest);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  // Child script: download (following redirects), gunzip, walk the tar for the
-  // single build/Release/better_sqlite3.node entry, write it to dest.
+  // Child script: fetch SHASUMS256.txt, download the asset (following
+  // redirects), verify its sha256 against the published checksum, gunzip,
+  // walk the tar for the single build/Release/better_sqlite3.node entry, and
+  // write it to dest. Aborts without writing anything on checksum mismatch.
   const child = String.raw`
 const https = require("https");
 const zlib = require("zlib");
 const fs = require("fs");
+const crypto = require("crypto");
 const url = process.argv[1];
-const dest = process.argv[2];
+const shasumsUrl = process.argv[2];
+const assetName = process.argv[3];
+const dest = process.argv[4];
 
 function get(u, redirs) {
   return new Promise((resolve, reject) => {
@@ -168,6 +185,17 @@ function get(u, redirs) {
       res.on("error", reject);
     }).on("error", reject);
   });
+}
+
+function expectedSha256(shasumsText, name) {
+  for (const line of shasumsText.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Format: "<hex sha256>  <filename>" (two spaces, may vary)
+    const match = trimmed.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
+    if (match && match[2].trim() === name) return match[1].toLowerCase();
+  }
+  return null;
 }
 
 // Extract the single .node file from an uncompressed tar buffer (ustar format).
@@ -191,7 +219,20 @@ function extractNode(tar) {
 
 (async () => {
   try {
+    const shasumsBuf = await get(shasumsUrl, 0);
+    const expected = expectedSha256(shasumsBuf.toString("utf8"), assetName);
+    if (!expected) {
+      console.error("no checksum entry found for " + assetName + " in SHASUMS256.txt");
+      process.exit(4);
+    }
+
     const tgz = await get(url, 0);
+    const actual = crypto.createHash("sha256").update(tgz).digest("hex");
+    if (actual !== expected) {
+      console.error("checksum mismatch for " + assetName + ": expected " + expected + ", got " + actual);
+      process.exit(3);
+    }
+
     const tar = zlib.gunzipSync(tgz);
     const node = extractNode(tar);
     if (!node || node.length === 0) { console.error("addon not found in archive"); process.exit(2); }
@@ -204,7 +245,7 @@ function extractNode(tar) {
 })();
 `;
 
-  const res = spawnSync(process.execPath, ["-e", child, url, dest], {
+  const res = spawnSync(process.execPath, ["-e", child, url, shasumsUrl, asset, dest], {
     timeout: 60000,
     stdio: ["ignore", "ignore", "pipe"],
   });
