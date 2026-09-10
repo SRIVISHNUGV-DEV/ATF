@@ -96,6 +96,11 @@ export class Simulator {
         steps.push(result.value);
         if (result.value.reverted) {
           errors.push(`Simulation reverted for ${callNodes[i].id}: ${result.value.revertReason}`);
+        } else if (result.value.timedOut) {
+          // Inconclusive, not a revert — surface as a warning so callers/risk
+          // assessors can see it, rather than it silently looking like a
+          // verified success (see fetchPrebuiltSync-style fail-closed intent).
+          warnings.push(`Simulation inconclusive for ${callNodes[i].id}: ${result.value.error}`);
         }
       } else {
         steps.push({
@@ -147,10 +152,18 @@ export class Simulator {
       ]);
 
       if (result === 'TIMEOUT') {
-        step.error = `Simulation timed out after ${SIMULATION_TIMEOUT_MS}ms`;
-        // Don't fail on timeout — treat as success with warning
-        step.success = true;
+        // A timeout is INCONCLUSIVE, not a verified success: we genuinely don't
+        // know whether this call would have reverted. Marking it success=true
+        // here previously made a stalled/rate-limited/DoS'd RPC provider look
+        // identical to a clean simulation, silently defeating the risk engine's
+        // SIM_REVERT hard-override (risk/scoring.ts). Mark it as not-successful
+        // and not-reverted so callers can tell "failed to verify" apart from
+        // both "verified clean" and "verified to revert", and flag it via
+        // `timedOut` so the outer `simulate()` can surface a warning.
+        step.success = false;
         step.reverted = false;
+        step.timedOut = true;
+        step.error = `Simulation timed out after ${SIMULATION_TIMEOUT_MS}ms — result inconclusive`;
       } else {
         step.success = true;
         step.reverted = false;
