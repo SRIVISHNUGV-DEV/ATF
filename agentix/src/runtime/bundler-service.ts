@@ -4,6 +4,7 @@ import { loadConfig, saveConfig } from "../core/config";
 import { logger } from "../core/logger";
 import { runExecute, runQueryCamel } from "../core/database";
 import { getEventBus } from "../../packages/core/eventbus";
+import { assessBundlerOp } from "./bundler-risk-gate";
 import { randomBytes } from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -49,6 +50,13 @@ const EP_ABI = [
   "function handleOps(tuple(address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address payable beneficiary) external",
   "function getNonce(address sender, uint192 key) external view returns (uint256)",
   "function balanceOf(address account) external view returns (uint256)",
+];
+
+// The wallet.execute(address target, uint256 value, bytes data) selector that
+// every session-signed UserOp's callData encodes. Used to recover the real
+// target/value/data for risk assessment before relaying.
+const WALLET_EXECUTE_ABI = [
+  "function execute(address target, uint256 value, bytes calldata data) external",
 ];
 
 // ── Bundler EOA Management ──────────────────────────────────────
@@ -159,6 +167,39 @@ export async function submitUserOp(signedUserOp: any): Promise<{
   const config = loadConfig();
   const bundler = getBundlerWallet();
   const provider = getProvider();
+
+  // ── RISK ENFORCEMENT GATE ──────────────────────────────────────
+  // This function (and flushPendingOps, which calls it per-op) used to relay
+  // any signed UserOp straight to EntryPoint.handleOps() with NO reference to
+  // the risk engine or owner policy -- the same hole bundler-risk-gate.ts
+  // closed for the HTTP POST /api/bundler/send route, but left open for the
+  // agentix_bundler_submit / agentix_bundler_flush MCP tools. Decode the
+  // wallet.execute(target,value,data) calldata and run the same fail-closed
+  // assessment used by the HTTP relay before ever calling handleOps.
+  try {
+    const walletIface = new ethers.Interface(WALLET_EXECUTE_ABI);
+    const [target, value, data] = walletIface.decodeFunctionData("execute", signedUserOp.callData);
+    const gate = await assessBundlerOp({
+      sender: signedUserOp.sender,
+      target,
+      value: value.toString(),
+      calldata: data,
+    });
+    if (!gate.allowed) {
+      logger.warn("bundler", `submitUserOp blocked by risk gate: ${gate.reason}`);
+      return {
+        success: false,
+        error: `Blocked by risk engine: ${gate.reason}`,
+      };
+    }
+  } catch (e: any) {
+    // Fail-closed: if the op can't be decoded/assessed, do not relay it blind.
+    logger.error("bundler", `submitUserOp risk assessment failed (fail-closed): ${e.message}`);
+    return {
+      success: false,
+      error: `Risk assessment failed, refusing to relay: ${e.message}`,
+    };
+  }
 
   // 1. Check bundler has gas ETH
   const bundlerBalance = await provider.getBalance(bundler.address);
