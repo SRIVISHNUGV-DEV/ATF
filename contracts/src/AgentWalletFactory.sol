@@ -41,6 +41,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
     event SessionManagerUpdated(address indexed oldSM, address indexed newSM);
     event EntryPointProposed(address indexed previous, address indexed next, uint256 activationTime);
     event EntryPointUpdated(address indexed oldEP, address indexed newEP);
+    event IdentityRegistrationFailed(address indexed wallet, address indexed agentIdentity);
 
     uint256 public constant TIMELOCK_DELAY = 2 days;
 
@@ -207,7 +208,13 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
             agentWallets[wallet] = true;
             walletCount++;
             if (agentIdentity != address(0)) {
-                IAgentIdentity(agentIdentity).registerIdentity(wallet);
+                // Do not let a misbehaving/misconfigured identity contract block wallet
+                // creation (availability DoS). Surface the failure via an event instead
+                // of reverting the whole wallet-creation transaction.
+                try IAgentIdentity(agentIdentity).registerIdentity(wallet) {
+                } catch {
+                    emit IdentityRegistrationFailed(wallet, agentIdentity);
+                }
             }
             emit WalletCreated(wallet, owner, salt, entryPoint);
         } else if (IAgentWallet(wallet).owner() != owner) {
