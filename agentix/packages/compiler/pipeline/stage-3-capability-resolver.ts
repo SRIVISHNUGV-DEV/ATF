@@ -57,10 +57,16 @@ export class CapabilityResolver {
     }
 
     const db: any = this._getDb();
-    if (db) {
+    // The `capabilities` table is keyed by organization_id: capabilities
+    // registered for one org must never satisfy another org's intent. Only
+    // run the local-DB fallback when we have an organization to scope to —
+    // an intent with no organizationId gets no local-DB capabilities, not an
+    // unscoped (i.e. every-org) query.
+    if (db && intent.organizationId) {
       try {
         const localCapabilities = db.query(
-          'SELECT capability_id, name, hash FROM capabilities WHERE active = 1'
+          'SELECT capability_id, name, hash FROM capabilities WHERE active = 1 AND organization_id = ?',
+          [intent.organizationId]
         ) as Record<string, unknown>[];
         for (const cap of localCapabilities) {
           if (!graph.capabilities.some((c) => c.capabilityId === cap.capability_id)) {
