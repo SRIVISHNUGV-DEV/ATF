@@ -87,6 +87,7 @@ contract AgentWallet is ReentrancyGuard {
     event SessionManagerUpdated(address indexed oldSessionManager, address indexed newSessionManager);
     event EntryPointProposed(address indexed previousEntryPoint, address indexed newEntryPoint, uint256 activationTime);
     event EntryPointUpdated(address indexed oldEntryPoint, address indexed newEntryPoint);
+    event Erc1820RegistrationFailed(address indexed wallet);
 
     /// @notice The wallet owner (can execute directly or via sessions).
     address public owner;
@@ -160,7 +161,12 @@ contract AgentWallet is ReentrancyGuard {
             abi.encodeWithSignature("setInterfaceImplementer(address,bytes32,address)",
                 address(this), ERC777_TOKENS_RECIPIENT_HASH, address(this))
         );
-        erc1820Ok; // success is optional — ERC1820 registry may not exist
+        if (!erc1820Ok) {
+            // Registry call failed (e.g. chain without ERC1820, or registry reverted).
+            // Non-fatal: wallet still initializes, but emit for observability so ERC-777
+            // token compatibility issues can be diagnosed instead of failing silently.
+            emit Erc1820RegistrationFailed(address(this));
+        }
 
         emit WalletInitialized(_owner, _sessionManager, _entryPoint);
     }
