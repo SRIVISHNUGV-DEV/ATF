@@ -25,6 +25,21 @@ export class StateReconstructor {
 
       const events = this.eventStore.queryInRange(0, 999999999);
 
+      // Resolves the local organization that owns an on-chain address, for
+      // events (CapabilityRegistered, DelegationRootUpdated) whose ABI carries
+      // no organization id. Returns undefined when no organization record owns
+      // that address; callers must skip the row rather than fall back to a
+      // blank organization_id, since '' can silently match empty-string-scoped
+      // queries and defeat org-scoped access checks (see capability-resolver).
+      const resolveOrganizationId = (ownerAddress: unknown, db: { query: Function; execute: Function }): string | undefined => {
+        if (typeof ownerAddress !== 'string' || !ownerAddress) return undefined;
+        const rows = db.query(
+          `SELECT id FROM organizations WHERE owner_address = ?`,
+          [ownerAddress]
+        ) as Array<{ id: string }>;
+        return rows[0]?.id;
+      };
+
       const rebuilders: Record<string, (event: IndexerEvent, db: { query: Function; execute: Function }) => void> = {
         WalletCreated: (event, db) => {
           db.execute(
@@ -60,17 +75,21 @@ export class StateReconstructor {
           );
         },
         CapabilityRegistered: (event, db) => {
+          const organizationId = resolveOrganizationId(event.args.registrar, db);
+          if (!organizationId) return;
           db.execute(
             `INSERT OR REPLACE INTO capabilities (capability_id, organization_id, name, hash, active, created_at)
              VALUES (?, ?, ?, ?, 1, ?)`,
-            [event.args.capabilityId, '', event.args.actionHash || '', event.args.actionHash || '', Math.floor(Date.now() / 1000)]
+            [event.args.capabilityId, organizationId, event.args.actionHash || '', event.args.actionHash || '', Math.floor(Date.now() / 1000)]
           );
         },
         DelegationRootUpdated: (event, db) => {
+          const organizationId = resolveOrganizationId(event.args.delegator, db);
+          if (!organizationId) return;
           db.execute(
             `INSERT OR REPLACE INTO delegations (delegation_id, organization_id, delegator, delegatee, scope, expiry, active, created_at)
              VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-            [event.args.delegator + '_' + event.args.scopeHash, '', event.args.delegator, '', event.args.scopeHash?.toString() || '', event.args.expiresAt, Math.floor(Date.now() / 1000)]
+            [event.args.delegator + '_' + event.args.scopeHash, organizationId, event.args.delegator, '', event.args.scopeHash?.toString() || '', event.args.expiresAt, Math.floor(Date.now() / 1000)]
           );
         },
         IdentityRegistered: (event, db) => {
