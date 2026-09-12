@@ -1,18 +1,20 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
-import { join, resolve, isAbsolute } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 
 // AGENTIX_HOME is the root of all local state (config, DB, keys, logs).
-// Validate it to prevent path traversal or redirection attacks via env var.
+// This only resolves the value to an absolute path (fixing relative-path
+// confusion, e.g. cwd-dependent behavior); it does NOT restrict AGENTIX_HOME
+// to the user's home directory or a temp directory. AGENTIX_HOME is set by
+// the same local operator running this process, not by a remote or untrusted
+// actor, so an arbitrary absolute path here is an accepted, deliberate
+// override rather than a path-traversal vulnerability. If AGENTIX_HOME is
+// ever sourced from a less-trusted input (e.g. a value shared across users
+// or read from a request), add an explicit allowlist check before trusting it.
 function resolveAgentixHome(): string {
   const raw = process.env.AGENTIX_HOME;
   if (!raw) return join(homedir(), ".agentix");
-  // Resolve to absolute path to prevent relative path confusion
-  const abs = resolve(raw);
-  // Reject paths that resolve outside the user's home or a temp directory,
-  // unless explicitly set (defense-in-depth against env injection).
-  // Allow: homedir subdirs, temp dirs, and explicit overrides.
-  return abs;
+  return resolve(raw);
 }
 
 export const AGENTIX_HOME = resolveAgentixHome();
