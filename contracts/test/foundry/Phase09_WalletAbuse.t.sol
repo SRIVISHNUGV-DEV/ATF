@@ -40,8 +40,10 @@ contract Phase09_WalletAbuse is AuditHarness {
         vm.deal(w, 1 ether);
         bytes32 sid = keccak256("exec-revoked");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
-        vm.prank(w);
-        sm.call(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
+        // Revoke is callable by the session key or the WALLET OWNER (not the wallet)
+        vm.prank(owner1);
+        (bool okRev,) = sm.call(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
+        require(okRev);
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
             "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.01 ether, address(0xBEEF)
@@ -104,7 +106,7 @@ contract Phase09_WalletAbuse is AuditHarness {
         vm.prank(owner1);
         (bool ok,) = w.call(abi.encodeWithSignature("acceptEntryPoint()"));
         assertFalse(ok);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1);
         vm.prank(owner1);
         (bool ok2,) = w.call(abi.encodeWithSignature("acceptEntryPoint()"));
         assertTrue(ok2);

@@ -41,9 +41,12 @@ contract Phase03_Invariants is AuditHarness {
     function invariant_expiredSessionNeverValidates() public {
         address w = _createWallet(owner1);
         bytes32 sid = keccak256("expired-session");
-        uint64 expiry = uint64(block.timestamp - 1);
+        uint64 expiry = uint64(block.timestamp + 1 hours);
         vm.deal(w, 1 ether);
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, expiry, new address[](0));
+
+        // Move past expiry — the session must no longer validate
+        vm.warp(expiry + 1);
 
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
@@ -60,7 +63,8 @@ contract Phase03_Invariants is AuditHarness {
         vm.deal(w, 1 ether);
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
 
-        vm.prank(w);
+        // Revoke is callable by the session key or the WALLET OWNER (not the wallet itself)
+        vm.prank(owner1);
         (bool ok,) = sm.call(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
         require(ok);
 
@@ -89,8 +93,9 @@ contract Phase03_Invariants is AuditHarness {
         bytes32 sid = keccak256("dup-session");
         vm.deal(w, 1 ether);
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
-        vm.expectRevert();
-        _createLightSession(w, sid, sessionKey2, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
+        // _createLightSession's internal owner() staticcall would consume a
+        // vm.expectRevert, so assert on the returned bool instead.
+        assertFalse(_tryCreateLightSession(w, sid, sessionKey2, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0)));
     }
 
     function invariant_maxSessionsPerWalletEnforced() public {
@@ -101,8 +106,7 @@ contract Phase03_Invariants is AuditHarness {
             _createLightSession(w, sid, sessionKey1, 1 ether, 1, uint64(block.timestamp + 1 hours), new address[](0));
         }
         bytes32 overLimit = keccak256("over-limit");
-        vm.expectRevert();
-        _createLightSession(w, overLimit, sessionKey1, 1 ether, 1, uint64(block.timestamp + 1 hours), new address[](0));
+        assertFalse(_tryCreateLightSession(w, overLimit, sessionKey1, 1 ether, 1, uint64(block.timestamp + 1 hours), new address[](0)));
     }
 
     function invariant_dailySpendResetOnNewDay() public {
@@ -134,20 +138,21 @@ contract Phase03_Invariants is AuditHarness {
         require(ok3);
         vm.stopPrank();
 
-        (,,,,, uint256 dailySpendUsed,,) = _getLightSession(sid);
+        (,,,, uint256 dailySpendUsed,,,) = _getLightSession(sid);
         assertEq(dailySpendUsed, 0.3 ether);
     }
 
     function invariant_pauseBlocksCreation() public {
+        vm.prank(deployer);
         (bool ok,) = sm.call(abi.encodeWithSignature("pause()"));
         require(ok);
 
         address w = _createWallet(owner1);
         vm.deal(w, 1 ether);
         bytes32 sid = keccak256("paused-session");
-        vm.expectRevert();
-        _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
+        assertFalse(_tryCreateLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0)));
 
+        vm.prank(deployer);
         (bool ok2,) = sm.call(abi.encodeWithSignature("unpause()"));
         require(ok2);
     }
@@ -158,6 +163,7 @@ contract Phase03_Invariants is AuditHarness {
         bytes32 sid = keccak256("validate-paused");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
 
+        vm.prank(deployer);
         (bool ok,) = sm.call(abi.encodeWithSignature("pause()"));
         require(ok);
 

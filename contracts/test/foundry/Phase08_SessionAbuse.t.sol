@@ -9,8 +9,7 @@ contract Phase08_SessionAbuse is AuditHarness {
         vm.deal(w, 1 ether);
         bytes32 sid = keccak256("dup-id");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
-        vm.expectRevert();
-        _createLightSession(w, sid, sessionKey2, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
+        assertFalse(_tryCreateLightSession(w, sid, sessionKey2, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0)));
     }
 
     function test_MultipleRevocations_SecondRevert() public {
@@ -68,10 +67,10 @@ contract Phase08_SessionAbuse is AuditHarness {
         vm.startPrank(w);
         _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
         _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
-        (,,,,, uint256 dSpend,,) = _getLightSession(sid);
+        (,,,, uint256 dSpend,,,) = _getLightSession(sid);
         assertEq(dSpend, 0.6 ether);
         _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.3 ether, address(0xBEEF)));
-        (,,,,, dSpend,,) = _getLightSession(sid);
+        (,,,, dSpend,,,) = _getLightSession(sid);
         assertEq(dSpend, 0.9 ether);
         (bool ok,) = sm.call(abi.encodeWithSignature(
             "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.2 ether, address(0xBEEF)
@@ -110,8 +109,7 @@ contract Phase08_SessionAbuse is AuditHarness {
         for (uint256 i = 0; i < 33; i++) {
             targets[i] = address(uint160(0xBEEF + i));
         }
-        vm.expectRevert();
-        _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), targets);
+        assertFalse(_tryCreateLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), targets));
     }
 
     function test_RevokeDuringSession_Works() public {
@@ -121,7 +119,11 @@ contract Phase08_SessionAbuse is AuditHarness {
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
         vm.startPrank(w);
         _smCall(abi.encodeWithSignature("validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)));
+        vm.stopPrank();
+        // Revoke must come from the wallet OWNER (or session key), not the wallet
+        vm.prank(owner1);
         _smCall(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
+        vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
             "validateLightweightSession(bytes32,address,uint256,address)", sid, sessionKey1, 0.1 ether, address(0xBEEF)
         ));

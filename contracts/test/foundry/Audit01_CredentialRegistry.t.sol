@@ -307,6 +307,14 @@ contract Audit01_CredentialRegistry is Test {
     }
 
     function testFuzz_MultipleNullifiers(bytes32[10] calldata nullifiers) public {
+        // Nullifiers must be unique: the contract CORRECTLY reverts with
+        // NullifierUsed on duplicates (that's the double-spend protection).
+        // So we assume uniqueness for the "first mark" loop.
+        for (uint256 i = 0; i < 10; i++) {
+            for (uint256 j = i + 1; j < 10; j++) {
+                vm.assume(nullifiers[i] != nullifiers[j]);
+            }
+        }
         for (uint256 i = 0; i < 10; i++) {
             bytes32 n = nullifiers[i];
             vm.prank(sessionManager1);

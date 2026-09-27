@@ -15,8 +15,8 @@ contract MockEntryPoint is IEntryPoint {
         (bool ok,) = withdrawAddress.call{value: amount}("");
         require(ok);
     }
-    function validateUserOp(PackedUserOperation calldata userOp, bytes32, uint256) external returns (uint256) {
-        return AgentWallet(payable(userOp.sender)).validateUserOp(userOp, keccak256("test"), 0);
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256) external returns (uint256) {
+        return AgentWallet(payable(userOp.sender)).validateUserOp(userOp, userOpHash, 0);
     }
 }
 
@@ -66,10 +66,12 @@ contract AuditHarness is Test {
 
         (bool ok1,) = sm.call(abi.encodeWithSignature("proposeWalletFactory(address)", factory));
         require(ok1);
-        vm.warp(block.timestamp + 24 hours + 1);
+        // SessionManager.TIMELOCK_DELAY is 2 days — the full delay must elapse
+        // before acceptWalletFactory() or it reverts WalletFactoryTimelockNotReady.
+        vm.warp(block.timestamp + 2 days + 1);
         (bool ok2,) = sm.call(abi.encodeWithSignature("acceptWalletFactory()"));
         require(ok2);
-        vm.warp(block.timestamp - 24 hours - 1);
+        vm.warp(block.timestamp - 2 days - 1);
 
         (bool ok3,) = credReg.call(abi.encodeWithSignature("setSessionManager(address,bool)", sm, true));
         require(ok3);
@@ -97,9 +99,9 @@ contract AuditHarness is Test {
         return abi.decode(ret, (address));
     }
 
-    function _createLightSession(
+    function _tryCreateLightSession(
         address w, bytes32 sid, address sKey, uint256 dSpend, uint256 dTx, uint64 exp, address[] memory tgts
-    ) internal {
+    ) internal returns (bool) {
         address wOwn;
         (, bytes memory ownerRet) = w.staticcall(abi.encodeWithSignature("owner()"));
         wOwn = abi.decode(ownerRet, (address));
@@ -113,7 +115,13 @@ contract AuditHarness is Test {
             "createLightweightSession(bytes32,address,uint256,uint256,uint64,address[],bytes)",
             sid, sKey, dSpend, dTx, exp, tgts, abi.encodePacked(r, s, v)
         ));
-        require(ok);
+        return ok;
+    }
+
+    function _createLightSession(
+        address w, bytes32 sid, address sKey, uint256 dSpend, uint256 dTx, uint64 exp, address[] memory tgts
+    ) internal {
+        require(_tryCreateLightSession(w, sid, sKey, dSpend, dTx, exp, tgts), "createLightSession failed");
     }
 
     function _getSessionType(bytes32 sid) internal view returns (uint8) {

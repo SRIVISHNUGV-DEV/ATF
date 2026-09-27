@@ -9,16 +9,15 @@ contract MaliciousReceiver {
 }
 
 contract GasGriefer {
-    uint256 public gasTarget;
     uint256 public dummy;
-    function setGas(uint256 _g) external { gasTarget = _g; }
+    // Burns ALL gas forwarded to it, forcing the subcall to run out of gas.
+    // (The previous gasTarget-based burn stopped before OOG, so it never
+    // actually griefed.)
     receive() external payable {
-        uint256 target = gasleft() - gasTarget;
-        while (gasleft() > target) { dummy++; }
+        while (true) { dummy++; }
     }
     fallback() external payable {
-        uint256 target = gasleft() - gasTarget;
-        while (gasleft() > target) { dummy++; }
+        while (true) { dummy++; }
     }
 }
 
@@ -43,12 +42,15 @@ contract Phase05_Adversarial is AuditHarness {
 
     function test_GasGriefing_RevertsGracefully() public {
         GasGriefer gg = new GasGriefer();
-        gg.setGas(500_000);
         address w = _createWallet(owner1);
         vm.deal(w, 1 ether);
         vm.prank(owner1);
         (bool ok,) = w.call(abi.encodeWithSignature("execute(address,uint256,bytes)", address(gg), 0, ""));
         assertFalse(ok);
+        // Wallet is not bricked: a normal execute still works afterwards
+        vm.prank(owner1);
+        (bool ok2,) = w.call(abi.encodeWithSignature("execute(address,uint256,bytes)", address(0xBEEF), 0, ""));
+        assertTrue(ok2);
     }
 
     function test_ReturnDataBomb_DoesNotCrash() public {
@@ -101,7 +103,8 @@ contract Phase05_Adversarial is AuditHarness {
         vm.deal(w, 1 ether);
         bytes32 sid = keccak256("session-revoked");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
-        vm.prank(w);
+        // Revoke is callable by the session key or the WALLET OWNER (not the wallet)
+        vm.prank(owner1);
         (bool ok,) = sm.call(abi.encodeWithSignature("revokeLightweightSession(bytes32,address)", sid, w));
         require(ok);
         vm.startPrank(w);
@@ -190,6 +193,7 @@ contract Phase05_Adversarial is AuditHarness {
         vm.deal(w, 1 ether);
         bytes32 sid = keccak256("paused-validate");
         _createLightSession(w, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0));
+        vm.prank(deployer);
         sm.call(abi.encodeWithSignature("pause()"));
         vm.startPrank(w);
         (bool ok,) = sm.call(abi.encodeWithSignature(
@@ -200,7 +204,10 @@ contract Phase05_Adversarial is AuditHarness {
     }
 
     function test_CredentialRegistry_WhilePaused_BlocksRootUpdate() public {
+        vm.prank(deployer);
         credReg.call(abi.encodeWithSignature("pause()"));
+        // As owner: the only thing that can block this now is the pause
+        vm.prank(deployer);
         (bool ok,) = credReg.call(abi.encodeWithSignature("updateActiveRoot(bytes32)", keccak256("root")));
         assertFalse(ok);
     }

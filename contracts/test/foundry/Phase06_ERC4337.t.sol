@@ -61,12 +61,22 @@ contract Phase06_ERC4337 is AuditHarness {
 
     function test_DepositAndWithdrawEntryPoint() public {
         address w = _createWallet(owner1);
-        vm.deal(w, 2 ether);
+        // NB: vm.prank + {value:} pulls the ETH from the PRANKED address,
+        // not the test contract — so fund owner1, not address(this).
+        vm.deal(owner1, 2 ether);
         vm.prank(owner1);
-        w.call{value: 1 ether}(abi.encodeWithSignature("addDeposit()"));
+        (bool okDep,) = w.call{value: 1 ether}(abi.encodeWithSignature("addDeposit()"));
+        require(okDep);
         (bool ok, bytes memory ret) = w.staticcall(abi.encodeWithSignature("getDeposit()"));
         require(ok);
         assertEq(abi.decode(ret, (uint256)), 1 ether);
+        // Withdraw half back to the owner
+        vm.prank(owner1);
+        (bool okW,) = w.call(abi.encodeWithSignature("withdrawDepositTo(address,uint256)", owner1, 0.5 ether));
+        require(okW);
+        (bool ok2, bytes memory ret2) = w.staticcall(abi.encodeWithSignature("getDeposit()"));
+        require(ok2);
+        assertEq(abi.decode(ret2, (uint256)), 0.5 ether);
     }
 
     function test_ExecuteFromEntryPoint() public {
