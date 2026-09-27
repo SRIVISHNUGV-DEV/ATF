@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../../src/AgentIdentity.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract MockWallet is IAgentWallet {
     address public _owner;
@@ -343,13 +345,19 @@ contract Audit05_AgentIdentity is Test {
     function test_Adversarial_PausedStatePreventsRegistration() public {
         vm.prank(owner);
         identity.pause();
+        assertTrue(identity.paused());
+        // Deploy the wallet BEFORE arming expectRevert: a contract creation
+        // counts as "the next call" and would consume the expectation.
+        address w = address(new MockWallet(makeAddr("w")));
         vm.prank(factory);
-        vm.expectRevert();
-        identity.registerIdentity(address(new MockWallet(makeAddr("w"))));
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        identity.registerIdentity(w);
         vm.prank(owner);
         identity.unpause();
+        // Same hoisting here: prank must directly precede the register call
+        address w2 = address(new MockWallet(makeAddr("w2")));
         vm.prank(factory);
-        identity.registerIdentity(address(new MockWallet(makeAddr("w2"))));
+        identity.registerIdentity(w2);
     }
 
     function test_Adversarial_MetadataUpdateOnDeactivatedIdentity() public {
@@ -365,10 +373,18 @@ contract Audit05_AgentIdentity is Test {
     }
 
     function test_Adversarial_UUPSUpgrade_OnlyOwner() public {
-        // Direct low-level call to _authorizeUpgrade should only work for owner
-        address newImpl = makeAddr("newImpl");
+        address newImpl = address(new AgentIdentity());
+        // Attacker cannot upgrade: _authorizeUpgrade is onlyOwner
         vm.prank(attacker);
         vm.expectRevert();
-        // Can't easily test UUPS upgrade directly, but the override is onlyOwner
+        UUPSUpgradeable(address(identity)).upgradeToAndCall(newImpl, "");
+        // Owner can upgrade: implementation slot points at the new impl
+        vm.prank(owner);
+        UUPSUpgradeable(address(identity)).upgradeToAndCall(newImpl, "");
+        bytes32 implSlot = vm.load(
+            address(identity),
+            0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+        );
+        assertEq(implSlot, bytes32(uint256(uint160(newImpl))));
     }
 }
