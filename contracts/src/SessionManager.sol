@@ -179,7 +179,7 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
         _unpause();
     }
 
-    /// @notice Proposes a new AgentWalletFactory with a 24-hour timelock.
+    /// @notice Proposes a new AgentWalletFactory with a 2-day timelock (see TIMELOCK_DELAY).
     /// @param walletFactory_ The proposed new AgentWalletFactory address.
     function proposeWalletFactory(address walletFactory_) external onlyOwner {
         if (walletFactory_ == address(0)) revert InvalidSessionManager();
@@ -422,6 +422,10 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     function revokeLightweightSession(bytes32 sessionId, address wallet) external whenNotPaused {
         LightweightSession storage s = lightSessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
+        // The caller-supplied wallet must be the wallet the session is bound to.
+        // Without this, any wallet owner could revoke any other wallet's session
+        // by passing their own wallet as `wallet`.
+        if (wallet != s.wallet) revert NotBoundWallet();
         if (s.revoked) revert SessionAlreadyRevoked();
 
         if (s.sessionKey != msg.sender && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {

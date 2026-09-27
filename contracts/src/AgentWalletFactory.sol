@@ -120,7 +120,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
         return implementation.predictDeterministicAddress(salt, address(this));
     }
 
-    /// @notice Proposes a new AgentWallet implementation with a 24-hour timelock.
+    /// @notice Proposes a new AgentWallet implementation with a 2-day timelock (see TIMELOCK_DELAY).
     /// @param newImplementation The proposed new implementation contract address.
     function proposeImplementation(address newImplementation) external onlyOwner {
         if (newImplementation == address(0)) revert InvalidImplementationError();
@@ -141,7 +141,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
         emit ImplementationUpdated(oldImpl, implementation);
     }
 
-    /// @notice Proposes a new SessionManager with a 24-hour timelock.
+    /// @notice Proposes a new SessionManager with a 2-day timelock (see TIMELOCK_DELAY).
     /// @param newSessionManager The proposed new SessionManager contract address.
     function proposeSessionManager(address newSessionManager) external onlyOwner {
         if (newSessionManager == address(0)) revert FactoryInvalidSessionManagerError();
@@ -162,7 +162,7 @@ contract AgentWalletFactory is Initializable, UUPSUpgradeable, OwnableUpgradeabl
         emit SessionManagerUpdated(oldSM, sessionManager);
     }
 
-    /// @notice Proposes a new EntryPoint with a 24-hour timelock.
+    /// @notice Proposes a new EntryPoint with a 2-day timelock (see TIMELOCK_DELAY).
     /// @param newEntryPoint The proposed new EntryPoint contract address.
     function proposeEntryPoint(address newEntryPoint) external onlyOwner {
         if (newEntryPoint == address(0)) revert FactoryInvalidEntryPointError();

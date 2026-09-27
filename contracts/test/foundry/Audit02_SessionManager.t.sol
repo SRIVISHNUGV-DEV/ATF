@@ -59,7 +59,11 @@ contract Audit02_SessionManager is Test {
         vm.etch(wallet2, hex"01");
 
         address smImpl = address(new SessionManager());
+        // Deploy the proxy pranked as `owner`: SessionManager.initialize uses
+        // __Ownable_init(msg.sender), so the deployer becomes the owner.
+        vm.startPrank(owner);
         sm = SessionManager(address(new ERC1967Proxy(smImpl, abi.encodeWithSignature("initialize(address,address,address)", address(verifier), address(registry), address(walletFactory)))));
+        vm.stopPrank();
 
         vm.prank(owner);
         registry.setSessionManager(address(sm), true);
@@ -145,7 +149,8 @@ contract Audit02_SessionManager is Test {
     function test_AcceptWalletFactory_AfterTimelock() public {
         vm.prank(owner);
         sm.proposeWalletFactory(makeAddr("wf"));
-        vm.warp(block.timestamp + 24 hours + 1);
+        // TIMELOCK_DELAY is 2 days (see SessionManager.TIMELOCK_DELAY)
+        vm.warp(block.timestamp + 2 days + 1);
         vm.prank(owner);
         sm.acceptWalletFactory();
     }
@@ -266,9 +271,12 @@ contract Audit02_SessionManager is Test {
         sm.validateLightweightSession(keccak256("x"), sessionKey1, 0, address(0xBEEF));
     }
 
-    function test_ValidateLightSession_NotFound() public {
+    function test_ValidateLightSession_NonexistentSession() public {
+        // Check order in validateLightweightSession is binding-first: a session id
+        // that was never created has s.wallet == address(0), so even the caller's
+        // own lookup reverts NotBoundWallet before reaching SessionNotFound.
         vm.prank(wallet1);
-        vm.expectRevert(SessionNotFound.selector);
+        vm.expectRevert(NotBoundWallet.selector);
         sm.validateLightweightSession(keccak256("nonexistent"), sessionKey1, 0, address(0xBEEF));
     }
 
@@ -292,7 +300,8 @@ contract Audit02_SessionManager is Test {
     function test_ValidateLightSession_Revoked() public {
         bytes32 sid = keccak256("revoked-v");
         _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
-        vm.prank(wallet1);
+        // Revoke as the wallet's owner (mocked owner() of wallet1 is vm.addr(PK_OWNER1))
+        vm.prank(vm.addr(PK_OWNER1));
         sm.revokeLightweightSession(sid, wallet1);
         vm.prank(wallet1);
         vm.expectRevert(SessionIsRevoked.selector);
@@ -622,6 +631,7 @@ contract Audit02_SessionManager is Test {
     function testFuzz_TargetMatch(bytes32 sessionId, uint160 targetAddr) public {
         vm.assume(sessionId != bytes32(0));
         vm.assume(targetAddr != 0);
+        vm.assume(targetAddr < type(uint160).max); // +1 below must not overflow
         address target = address(targetAddr);
         address wrongTarget = address(uint160(targetAddr + 1));
 
@@ -720,6 +730,20 @@ contract Audit02_SessionManager is Test {
         vm.prank(wallet2);
         vm.expectRevert(NotBoundWallet.selector);
         sm.validateLightweightSession(sid, sessionKey1, 0.01 ether, address(0xBEEF));
+    }
+
+    function test_Adversarial_RevokeWithUnrelatedWallet_Reverts() public {
+        // Attacker owns wallet2 (mocked owner() is vm.addr(PK_OWNER2)).
+        // Passing their own wallet as `wallet` must not let them revoke
+        // wallet1's session.
+        bytes32 sid = keccak256("cross-wallet-revoke");
+        _createLightSession(wallet1, sid, sessionKey1, 1 ether, 100, uint64(block.timestamp + 1 hours), new address[](0), PK_OWNER1);
+        vm.prank(vm.addr(PK_OWNER2));
+        vm.expectRevert(NotBoundWallet.selector);
+        sm.revokeLightweightSession(sid, wallet2);
+        // Session must still be live afterwards
+        (,,,,,,, bool revoked) = sm.getLightSession(sid);
+        assertFalse(revoked);
     }
 
     function test_Adversarial_ZeroTargetInAllowedList() public {

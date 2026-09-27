@@ -29,7 +29,11 @@ contract Audit04_AgentWalletFactory is Test {
         walletImpl = new AgentWallet();
 
         address fImpl = address(new AgentWalletFactory());
+        // Deploy the proxy pranked as `owner`: AgentWalletFactory.initialize uses
+        // __Ownable_init(msg.sender), so the deployer becomes the owner.
+        vm.startPrank(owner);
         factory = AgentWalletFactory(address(new ERC1967Proxy(fImpl, abi.encodeWithSignature("initialize(address,address,address)", address(walletImpl), sm, ep))));
+        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════
@@ -190,7 +194,7 @@ contract Audit04_AgentWalletFactory is Test {
         address newImpl = makeAddr("newImpl");
         vm.prank(owner);
         factory.proposeImplementation(newImpl);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         factory.acceptImplementation();
         assertEq(factory.implementation(), newImpl);
@@ -211,7 +215,7 @@ contract Audit04_AgentWalletFactory is Test {
         address newSM = makeAddr("newSM");
         vm.prank(owner);
         factory.proposeSessionManager(newSM);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         factory.acceptSessionManager();
         assertEq(factory.sessionManager(), newSM);
@@ -232,7 +236,7 @@ contract Audit04_AgentWalletFactory is Test {
         address newEP = makeAddr("newEP");
         vm.prank(owner);
         factory.proposeEntryPoint(newEP);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         factory.acceptEntryPoint();
         assertEq(factory.entryPoint(), newEP);
