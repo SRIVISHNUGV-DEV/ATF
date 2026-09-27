@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../src/AgentWallet.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract MockSessionManager {
     mapping(bytes32 => uint8) public sessionType;
@@ -80,16 +81,14 @@ contract Audit03_AgentWallet is Test {
         ep = new MockEntryPoint2();
 
         address impl = address(new AgentWallet());
-        // Deploy via create + manual init (mimicking factory clone)
-        wallet = AgentWallet(payable(impl));
-        // Override initialized flag via storage write for test (implementation locked in constructor)
-        // Actually the constructor sets initialized=true. We need a fresh clone approach.
-        // Let's use a different approach: deploy fresh via vm.etch
-        bytes memory code = vm.getCode("sol:AgentWallet");
-        vm.etch(address(wallet), code);
+        // Mimic the factory: the implementation's constructor locks `initialized`,
+        // so deploy a proxy clone (fresh storage) and initialize that instead.
+        wallet = AgentWallet(payable(address(new ERC1967Proxy(impl, ""))));
         wallet.initialize(owner, address(sm), address(ep));
 
         vm.deal(address(wallet), 10 ether);
+        // vm.prank(owner) + {value: x} debits the PRANKED address, not this contract
+        vm.deal(owner, 100 ether);
     }
 
     // ═══════════════════════════════════════════════
@@ -143,10 +142,10 @@ contract Audit03_AgentWallet is Test {
     function test_Execute_WithCalldata() public {
         bytes memory data = abi.encodeWithSignature("ping()");
         vm.prank(owner);
-        // recipient has no ping(), but low-level call just returns false
+        // recipient is an EOA: a call with arbitrary calldata succeeds (there is
+        // no code to revert), so execute() forwards the calldata and completes.
         (bool ok,) = address(wallet).call(abi.encodeWithSignature("execute(address,uint256,bytes)", recipient, 0, data));
-        // Should fail because target has no ping() and the fallback might not exist
-        assertFalse(ok);
+        assertTrue(ok);
     }
 
     function test_Execute_ReentrancyGuard() public {
@@ -233,17 +232,14 @@ contract Audit03_AgentWallet is Test {
 
     function test_ExecuteBatch_FailingCall() public {
         address bad = makeAddr("bad");
-        // Will fail with empty calldata - no receive function on random address
-        // Actually in Foundry, makeAddr gives a plain address, sending ETH works (receive is implicit?)
-        // Let's deploy a contract that reverts
-        // Actually: vm.etch with code that reverts
-        // For now, test with target that has no code but we try to send calldata
-        // Low-level call to EOA with empty data succeeds
+        // Etch always-reverting code: PUSH1 0, DUP1, REVERT.
+        // (A plain EOA target would NOT fail — calls to EOAs with any calldata succeed.)
+        vm.etch(bad, hex"60006000fd");
         address[] memory targets = new address[](1);
-        targets[0] = makeAddr("bad");
+        targets[0] = bad;
         uint256[] memory values = new uint256[](1);
         bytes[] memory data = new bytes[](1);
-        data[0] = hex"dead"; // invalid calldata
+        data[0] = hex"dead";
         vm.prank(owner);
         vm.expectRevert(CallFailedError.selector);
         wallet.executeBatch(targets, values, data);
@@ -366,7 +362,9 @@ contract Audit03_AgentWallet is Test {
         vm.prank(newOwner);
         wallet.acceptOwnership();
         vm.prank(owner);
-        vm.expectRevert(NotOwnerError.selector);
+        // execute() is gated by onlyOwnerOrEntryPoint (NotAuthorizedError),
+        // not onlyOwner (NotOwnerError)
+        vm.expectRevert(NotAuthorizedError.selector);
         wallet.execute(recipient, 0, "");
     }
 
@@ -378,7 +376,7 @@ contract Audit03_AgentWallet is Test {
         address newSM = makeAddr("newSM");
         vm.prank(owner);
         vm.expectEmit(true, true, true, true);
-        emit SessionManagerProposed(address(sm), newSM, block.timestamp + 24 hours);
+        emit SessionManagerProposed(address(sm), newSM, block.timestamp + 2 days);
         wallet.proposeSessionManager(newSM);
         assertEq(wallet.pendingSessionManager(), newSM);
     }
@@ -403,7 +401,7 @@ contract Audit03_AgentWallet is Test {
         address newSM = makeAddr("newSM");
         vm.prank(owner);
         wallet.proposeSessionManager(newSM);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         wallet.acceptSessionManager();
         assertEq(wallet.sessionManager(), newSM);
@@ -432,7 +430,7 @@ contract Audit03_AgentWallet is Test {
         address newEP = makeAddr("newEP");
         vm.prank(owner);
         wallet.proposeEntryPoint(newEP);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         wallet.acceptEntryPoint();
         assertEq(wallet.entryPoint(), newEP);
@@ -576,7 +574,7 @@ contract Audit03_AgentWallet is Test {
 
     function testFuzz_AddDeposit(uint96 amount) public {
         vm.assume(amount > 0);
-        vm.deal(address(wallet), uint256(amount));
+        vm.deal(owner, uint256(amount));
         vm.prank(owner);
         wallet.addDeposit{value: uint256(amount)}();
         assertEq(wallet.getDeposit(), amount);
@@ -609,7 +607,9 @@ contract Audit03_AgentWallet is Test {
         vm.prank(newOwner);
         wallet.execute(recipient, 0, "");
         vm.prank(owner);
-        vm.expectRevert(NotOwnerError.selector);
+        // execute() is gated by onlyOwnerOrEntryPoint (NotAuthorizedError),
+        // not onlyOwner (NotOwnerError)
+        vm.expectRevert(NotAuthorizedError.selector);
         wallet.execute(recipient, 0, "");
     }
 
@@ -620,7 +620,7 @@ contract Audit03_AgentWallet is Test {
         address newEP = makeAddr("newEP");
         vm.prank(owner);
         wallet.proposeEntryPoint(newEP);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(block.timestamp + 2 days + 1); // TIMELOCK_DELAY is 2 days
         vm.prank(owner);
         wallet.acceptEntryPoint();
 
