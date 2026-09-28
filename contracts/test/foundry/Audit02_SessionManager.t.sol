@@ -746,6 +746,26 @@ contract Audit02_SessionManager is Test {
         assertFalse(revoked);
     }
 
+    function test_Adversarial_RevokeStandardSessionWithUnrelatedWallet_Reverts() public {
+        // Same cross-wallet hole as the lightweight sibling, on the standard path:
+        // attacker owns wallet2 and passes their OWN wallet as `wallet` to revoke
+        // wallet1's standard session. The wallet==s.wallet binding check stops it.
+        bytes32 sid = keccak256("cross-wallet-std-revoke");
+        vm.prank(owner);
+        registry.updateActiveRoot(bytes32(uint256(1)));
+        vm.prank(owner);
+        registry.updateRevokedSecretRoot(bytes32(uint256(2)));
+        uint256[7] memory pubSignals = [uint256(1), 2, 100, block.timestamp + 100, uint256(uint160(wallet1)), 1, uint256(keccak256("n-std-revoke"))];
+        vm.prank(wallet1);
+        sm.createSession(sid, wallet1, sessionKey1, 100, uint64(block.timestamp + 100), [uint(0),0], [[uint(0),0],[uint(0),0]], [uint(0),0], pubSignals);
+        vm.prank(vm.addr(PK_OWNER2));
+        vm.expectRevert(NotBoundWallet.selector);
+        sm.revokeSession(sid, wallet2);
+        // Session must still be live afterwards
+        vm.prank(wallet1);
+        assertTrue(sm.validateSession(sid, sessionKey1, 0, address(0xBEEF)));
+    }
+
     function test_Adversarial_ZeroTargetInAllowedList() public {
         bytes32 sid = keccak256("zero-target");
         address[] memory targets = new address[](2);

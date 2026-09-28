@@ -295,6 +295,10 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
     function revokeSession(bytes32 sessionId, address wallet) external whenNotPaused {
         Session storage s = sessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
+        // The caller-supplied wallet must be the wallet the session is bound to.
+        // Without this, any wallet owner could revoke any other wallet's session
+        // by passing their own wallet as `wallet`.
+        if (wallet != s.wallet) revert NotBoundWallet();
         if (s.revoked) revert SessionAlreadyRevoked();
         if (msg.sender != s.sessionKey && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
             revert NotAuthorizedToRevoke();
