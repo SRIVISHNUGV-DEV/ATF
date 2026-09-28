@@ -10,7 +10,7 @@ function randAddr(): string {
   return ethers.Wallet.createRandom().address;
 }
 
-describe("Fuzz — CredentialRegistry", function () {
+describe("CredentialRegistry (hardhat)", function () {
   let credReg: any;
   let owner: SignerWithAddress;
   let signers: SignerWithAddress[];

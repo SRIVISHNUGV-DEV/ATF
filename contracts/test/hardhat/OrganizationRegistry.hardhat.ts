@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
-describe("Fuzz — OrganizationRegistry", function () {
+describe("OrganizationRegistry (hardhat)", function () {
   let orgReg: any;
   let anchorImpl: any;
   let owner: SignerWithAddress;

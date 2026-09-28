@@ -12,6 +12,7 @@ export interface SimulatedStep {
   revertReason?: string;
   gasEstimate?: GasEstimate;
   error?: string;
+  timedOut?: boolean;
 }
 
 export interface SimulationResult {

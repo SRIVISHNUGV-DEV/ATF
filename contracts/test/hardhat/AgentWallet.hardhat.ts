@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
-describe("Fuzz — AgentWallet", function () {
+describe("AgentWallet (hardhat)", function () {
   let wallet: any;
   let factory: any;
   let sessionManager: any;

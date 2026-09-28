@@ -220,9 +220,17 @@ export async function submitUserOp(signedUserOp: any): Promise<{
     };
   }
 
-  // 3. Get correct nonce
-  const nonce = await ep.getNonce(signedUserOp.sender, 0);
-  signedUserOp.nonce = nonce;
+  // 3. Verify the nonce matches the EntryPoint. Never mutate the nonce of a
+  // SIGNED op: the userOpHash the signature covers includes the nonce, so
+  // overwriting it here invalidates the signature and every relayed op
+  // fails validation. Reject stale nonces fail-closed instead.
+  const expectedNonce = await ep.getNonce(signedUserOp.sender, 0);
+  if (BigInt(signedUserOp.nonce) !== expectedNonce) {
+    return {
+      success: false,
+      error: `Stale nonce: op signed with nonce ${signedUserOp.nonce} but EntryPoint expects ${expectedNonce}. Re-sign with the current nonce.`,
+    };
+  }
 
   // 4. Submit via handleOps
   const epSigner = new ethers.Contract(config.contracts.entryPoint, EP_ABI, bundler);

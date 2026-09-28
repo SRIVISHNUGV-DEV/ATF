@@ -6,7 +6,7 @@ function randBytes32(): string {
   return ethers.hexlify(ethers.randomBytes(32));
 }
 
-describe("Fuzz — OrganizationCredentialAnchor", function () {
+describe("OrganizationCredentialAnchor (hardhat)", function () {
   let anchor: any;
   let orgReg: any;
   let owner: SignerWithAddress;

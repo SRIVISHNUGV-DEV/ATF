@@ -6,7 +6,7 @@ function randBytes32(): string {
   return ethers.hexlify(ethers.randomBytes(32));
 }
 
-describe("Fuzz — CapabilityRegistry", function () {
+describe("CapabilityRegistry (hardhat)", function () {
   let capReg: any;
   let owner: SignerWithAddress;
   let signers: SignerWithAddress[];

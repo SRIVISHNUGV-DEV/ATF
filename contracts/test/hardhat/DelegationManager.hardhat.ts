@@ -6,7 +6,7 @@ function randBytes32(): string {
   return ethers.hexlify(ethers.randomBytes(32));
 }
 
-describe("Fuzz — DelegationManager", function () {
+describe("DelegationManager (hardhat)", function () {
   let delMgr: any;
   let owner: SignerWithAddress;
   let signers: SignerWithAddress[];

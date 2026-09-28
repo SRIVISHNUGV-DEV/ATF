@@ -229,6 +229,8 @@ const treeCache: Map<string, RevokedTree> = new Map();
 
 export async function getRevokedTree(organizationId: string): Promise<RevokedTree> {
   if (treeCache.has(organizationId)) return treeCache.get(organizationId)!;
+  // Warm the Poseidon singleton BEFORE construction (see getActiveTree).
+  await initMerkleCrypto();
   const tree = new RevokedTree(organizationId);
   await tree.initialize();
   treeCache.set(organizationId, tree);

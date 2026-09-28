@@ -508,12 +508,11 @@ bun x vitest run tests/circuit-compat.test.ts
 bun x tsx tests/soak-test.ts --duration=24h --interval=5m
 ```
 
-### Test Results (Latest)
+### Test Results (Latest — verified 2026-09-28)
 
-- **TypeScript Compilation:** ✅ Clean (both agentix/ and apps/dashboard/)
-- **Unit Tests:** ✅ 254 passed (22 files)
-- **E2E Tests:** ✅ 31/31 pass
-- **Circuit Compatibility:** ✅ All Poseidon vectors verified
+- **TypeScript Compilation:** ✅ Clean (`tsc --noEmit`, agentix/)
+- **Forge (contracts):** ✅ 352 passed, 0 failed (13 suites)
+- **Hardhat / vitest / E2E:** ⚠️ not re-verified in this pass — historic claims below are stale; see open issues
 
 ---
 
@@ -536,15 +535,14 @@ bun x tsx tests/soak-test.ts --duration=24h --interval=5m
 
 ## License
 
-BUSL-1.1 — Converts to Apache 2.0 on January 1, 2030.
+Apache-2.0 — see [LICENSE](./LICENSE).
 
 ---
 
 ## Documentation
 
-- [CHANGELOG.md](./CHANGELOG.md) — Version history
-- [DEPLOYMENT.md](./DEPLOYMENT.md) — Deployment instructions
-- [MIGRATION.md](./MIGRATION.md) — Migration guide
-- [RECOVERY.md](./RECOVERY.md) — Disaster recovery
-- [SEQUENCE.md](./SEQUENCE.md) — Sequence diagrams
-- [RELEASE_VALIDATION_REPORT.md](./RELEASE_VALIDATION_REPORT.md) — Beta-1 release validation
+- [PROJECT_AUDIT.md](./agentix/PROJECT_AUDIT.md) — Independent contract audit notes
+
+> CHANGELOG, DEPLOYMENT, MIGRATION, RECOVERY, SEQUENCE and release-validation
+> docs were linked here but do not exist in the repo yet. They are tracked as
+> open issues rather than dead links.

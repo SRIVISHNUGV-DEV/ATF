@@ -6,7 +6,7 @@ function randBytes32(): string {
   return ethers.hexlify(ethers.randomBytes(32));
 }
 
-describe("Invariant Tests — AgentIX System", function () {
+describe("AgentIX system checks (hardhat)", function () {
   let sessionManager: any;
   let credentialRegistry: any;
   let capReg: any;
@@ -116,7 +116,7 @@ describe("Invariant Tests — AgentIX System", function () {
     wallet = await ethers.getContractAt("AgentWallet", walletAddress);
   });
 
-  describe("SessionManager Invariants", function () {
+  describe("SessionManager checks", function () {
     it("INVARIANT: valueUsed never exceeds maxValue for any session", async function () {
       const sessions: any[] = [];
       for (let i = 0; i < 10; i++) {
@@ -151,7 +151,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("CredentialRegistry Invariants", function () {
+  describe("CredentialRegistry checks", function () {
     it("INVARIANT: usedNullifiers never go from true to false", async function () {
       const nullifiers: string[] = [];
       for (let i = 0; i < 50; i++) {
@@ -172,7 +172,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("CapabilityRegistry Invariants", function () {
+  describe("CapabilityRegistry checks", function () {
     it("INVARIANT: revoked capabilities remain revoked", async function () {
       const id = ethers.keccak256(ethers.toUtf8Bytes("invariant-cap"));
       await capReg.registerCapability(id, "test", 0);
@@ -194,7 +194,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("DelegationManager Invariants", function () {
+  describe("DelegationManager checks", function () {
     it("INVARIANT: delegation depth never exceeds MAX_DELEGATION_DEPTH", async function () {
       // The contract enforces this, but verify the constant
       expect(await delMgr.MAX_DELEGATION_DEPTH()).to.equal(10);
@@ -218,7 +218,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("AgentWallet Invariants", function () {
+  describe("AgentWallet checks", function () {
     it("INVARIANT: owner is never zero address", async function () {
       const o = await wallet.owner();
       expect(o).to.not.equal(ethers.ZeroAddress);
@@ -242,7 +242,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("OrganizationRegistry Invariants", function () {
+  describe("OrganizationRegistry checks", function () {
     it("INVARIANT: duplicate organization IDs cannot exist", async function () {
       const id = ethers.keccak256(ethers.toUtf8Bytes("dup-test"));
       await orgReg.registerOrganization(id, "First", owner.address);
@@ -257,7 +257,7 @@ describe("Invariant Tests — AgentIX System", function () {
     });
   });
 
-  describe("OrganizationCredentialAnchor Invariants", function () {
+  describe("OrganizationCredentialAnchor checks", function () {
     it("INVARIANT: epochs can only increment", async function () {
       const prevEpoch = await testAnchor.currentEpoch();
       await testAnchor.connect(owner).incrementEpoch();

@@ -274,6 +274,9 @@ const treeCache: Map<string, ActiveTree> = new Map();
 
 export async function getActiveTree(organizationId: string): Promise<ActiveTree> {
   if (treeCache.has(organizationId)) return treeCache.get(organizationId)!;
+  // Warm the Poseidon singleton BEFORE construction: the IncrementalMerkleTree
+  // constructor computes zero hashes eagerly, which throws on a null instance.
+  await initMerkleCrypto();
   const tree = new ActiveTree(organizationId);
   await tree.initialize();
   treeCache.set(organizationId, tree);
