@@ -2,10 +2,7 @@
   "mcpServers": {
     "agentix": {
       "command": "npx",
-      "args": [
-        "tsx",
-        "D:\\BLOCKCHAIN AND ZK PROJECTS\\AGENT_CREDENTIAL\\agentix\\dist\\src\\mcp\\index.js"
-      ]
+      "args": ["tsx", "src/mcp/server.ts"]
     }
   }
 }

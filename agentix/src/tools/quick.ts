@@ -5,6 +5,7 @@ import { loadConfig } from "../core/config";
 import { runExecute, runQuery, runSingle } from "../core/database";
 import { getEventBus } from "../../packages/core/eventbus";
 import { generateId } from "../../packages/shared/utils";
+import { previewLightweightSessionValidation } from "./session";
 
 const FACTORY_ABI = [
   "function createWallet(address owner) returns (address)",
@@ -17,8 +18,6 @@ const WALLET_ABI = [
   "function owner() view returns (address)",
   "function sessionManager() view returns (address)",
   "function entryPoint() view returns (address)",
-  "function whiteListedSelectors(address, bytes4) view returns (bool)",
-  "function setWhiteListedSelector(address party, bytes4 selector, bool status)",
   "function execute(address target, uint256 value, bytes data)",
   "function executeBatch(address[] targets, uint256[] values, bytes[] data)",
   "function addDeposit() payable",
@@ -30,7 +29,7 @@ const WALLET_ABI = [
 
 const SESSION_ABI = [
   "function createLightweightSession(bytes32 sessionId, address sessionKey, uint256 dailySpendLimit, uint256 dailyTxLimit, uint64 expiry, address[] allowedTargets, bytes ownerSignature)",
-  "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) view returns (bool)",
+  "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target) returns (bool)",
   "function revokeLightweightSession(bytes32 sessionId, address wallet)",
   "function getLightSession(bytes32 sessionId) view returns (address, address, uint256, uint256, uint256, uint256, uint64, bool)",
   "function getSessionType(bytes32 sessionId) view returns (uint8)",
@@ -159,14 +158,14 @@ export async function quickCreateSession(
   };
 }
 
-export async function quickValidateSession(sessionId: string, signer: string, value: string): Promise<any> {
+export async function quickValidateSession(sessionId: string, signer: string, value: string, target?: string): Promise<any> {
   const guard = getProxyGuard();
   const provider = getProvider();
   const sessionMgr = new ethers.Contract(guard.getProxyAddress("sessionManager"), SESSION_ABI, provider);
 
   try {
-    const valid = await sessionMgr.validateLightweightSession(sessionId, signer, value);
-    return { success: true, valid };
+    const check = await previewLightweightSessionValidation(sessionMgr, sessionId, signer, value || "0", target);
+    return { success: true, valid: check.valid, ...(check.reason ? { reason: check.reason } : {}) };
   } catch (e: any) {
     return { success: false, valid: false, error: e.reason || e.message };
   }
@@ -193,15 +192,12 @@ export function quickListSessions(walletAddress: string): any[] {
 // ── Whitelist ──────────────────────────────────────────────────────────
 
 export async function quickWhitelist(walletAddress: string, target: string, selector: string): Promise<any> {
-  const guard = getProxyGuard();
-  const signer = getSigner();
-  const wallet = new ethers.Contract(walletAddress, WALLET_ABI, signer);
-
-  const selectorBytes = selector.startsWith("0x") ? selector : ethers.id(selector).slice(0, 10);
-  const tx = await wallet.setWhiteListedSelector(target, selectorBytes, true);
-  const receipt = await tx.wait();
-
-  return { success: true, walletAddress, target, selector: selectorBytes, txHash: receipt.hash };
+  // The deployed AgentWallet has no selector whitelist (setWhiteListedSelector no longer
+  // exists); authorization is enforced by SessionManager. Kept for API compatibility.
+  return {
+    success: false,
+    error: "AgentWallet does not support per-wallet whitelisting. Authorization is handled by SessionManager.",
+  };
 }
 
 // ── Execute ────────────────────────────────────────────────────────────

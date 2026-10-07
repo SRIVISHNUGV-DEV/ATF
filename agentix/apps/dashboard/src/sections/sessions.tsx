@@ -86,13 +86,14 @@ export function SessionsPage() {
     { key: 'dailySpend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{s.dailySpendLimit || s.daily_spend_limit || '—'} ETH</span> },
     { key: 'expires', header: 'Expires', render: (s: any) => (
       <div className="flex items-center gap-1.5">
-        {s.expiry > 1e12 && (s.expiry * 1000 < Date.now() + 86400000) && <Clock className="w-3 h-3 text-warning" />}
-        <span className="text-xs text-muted-foreground">{s.expiry > 1e12 ? new Date(s.expiry * 1000).toLocaleDateString() : '—'}</span>
+        {/* expiry is a unix timestamp in seconds */}
+        {s.expiry > 0 && !s.revoked && (s.expiry * 1000 < Date.now() + 86400000) && <Clock className="w-3 h-3 text-warning" />}
+        <span className="text-xs text-muted-foreground">{s.expiry > 0 ? new Date(s.expiry * 1000).toLocaleDateString() : '—'}</span>
       </div>
     )},
     { key: 'status', header: '', render: (s: any) => (
       <div className="flex items-center gap-2 justify-end">
-        <Badge variant={s.revoked ? 'danger' : 'success'}>{s.revoked ? 'Revoked' : 'Active'}</Badge>
+        <Badge variant={s.revoked ? 'danger' : (s.expiry > 0 && s.expiry * 1000 < Date.now()) ? 'warning' : 'success'}>{s.revoked ? 'Revoked' : (s.expiry > 0 && s.expiry * 1000 < Date.now()) ? 'Expired' : 'Active'}</Badge>
         {!s.revoked && (
           <button onClick={() => revokeSession(s.sessionId || s.session_id, s.walletAddress || s.wallet_address)}
             className="text-[10px] text-muted-foreground/40 hover:text-destructive transition-colors">Revoke</button>

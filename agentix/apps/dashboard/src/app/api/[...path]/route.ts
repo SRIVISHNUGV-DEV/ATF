@@ -67,6 +67,8 @@ async function proxy(req: NextRequest, ctx: { params: { path?: string[] } }) {
   const resHeaders = new Headers(upstream.headers);
   resHeaders.delete("content-encoding");
   resHeaders.delete("transfer-encoding");
+  // fetch() already decoded the body, so the upstream length no longer matches.
+  resHeaders.delete("content-length");
   return new NextResponse(upstream.body, { status: upstream.status, headers: resHeaders });
 }
 

@@ -646,3 +646,32 @@ describe("34. MCP Tool Comprehensive Tests", () => {
     expect(result.category).toBe("no_policy");
   });
 });
+
+describe("previewLightweightSessionValidation", () => {
+  const WALLET = "0x1111111111111111111111111111111111111111";
+  const ZERO = "0x0000000000000000000000000000000000000000";
+
+  it("simulates the 4-arg validate call as the bound wallet", async () => {
+    const { previewLightweightSessionValidation } = await import("../src/tools/session");
+    let seen: any[] = [];
+    const sm: any = {
+      getLightSession: async () => [WALLET],
+      validateLightweightSession: { staticCall: async (...a: any[]) => { seen = a; return true; } },
+    };
+    const r = await previewLightweightSessionValidation(sm, "0xabc", "0xsigner", 5n, "0xtarget");
+    expect(r.valid).toBe(true);
+    expect(seen).toEqual(["0xabc", "0xsigner", 5n, "0xtarget", { from: WALLET }]);
+  });
+
+  it("reports unknown sessions and contract reverts as invalid with a reason", async () => {
+    const { previewLightweightSessionValidation } = await import("../src/tools/session");
+    const missing: any = { getLightSession: async () => [ZERO] };
+    expect(await previewLightweightSessionValidation(missing, "0x1", "0x2", 0n)).toEqual({ valid: false, reason: "Session not found" });
+
+    const reverting: any = {
+      getLightSession: async () => [WALLET],
+      validateLightweightSession: { staticCall: async () => { throw { revert: { name: "SessionExpired" } }; } },
+    };
+    expect(await previewLightweightSessionValidation(reverting, "0x1", "0x2", 0n)).toEqual({ valid: false, reason: "SessionExpired" });
+  });
+});

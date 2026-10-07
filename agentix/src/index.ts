@@ -532,6 +532,7 @@ program
   .option("--expiry <seconds>", "Session expiry (seconds)", "3600")
   .option("--signer <address>", "Signer address (for validate)")
   .option("--value <eth>", "Value to validate (for validate)")
+  .option("--target <address>", "Target contract the session key will call (for validate)")
   .action(async (action, opts) => {
     try {
       const gateway = getCompilerGateway();
@@ -555,7 +556,7 @@ program
         }
       } else if (action === "validate") {
         if (!opts["session-id"]) { err("--session-id is required"); return; }
-        const result = await validateSession(opts["session-id"], opts.signer, opts.value);
+        const result = await validateSession(opts["session-id"], opts.signer, opts.value, opts.target);
         printResult(result, "Validate Session");
       } else if (action === "revoke") {
         if (!opts["session-id"]) { err("--session-id is required"); return; }
@@ -1187,7 +1188,6 @@ program
         if (result.success) {
           log();
           info("Next steps:");
-          log(`  npx agentix agent whitelist --wallet ${result.walletAddress} --target <contract> --selector <selector>`);
           log(`  npx agentix agent session --wallet ${result.walletAddress} --session-key <key>`);
         }
       } else if (action === "wallet") {
@@ -1205,7 +1205,7 @@ program
         }
       } else if (action === "session") {
         if (opts["session-id"] && opts.signer) {
-          const result = await quickValidateSession(opts["session-id"], opts.signer, opts.value || "0");
+          const result = await quickValidateSession(opts["session-id"], opts.signer, opts.value || "0", opts.target);
           printResult(result, "Validate Session");
         } else if (opts["session-id"] && opts.wallet) {
           const result = await quickRevokeSession(opts["session-id"], opts.wallet);

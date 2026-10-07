@@ -57,8 +57,8 @@ the transaction is rejected. This prevents replay attacks.
 
 ## How Wallets Work
 AgentWallets are ERC-4337 smart accounts (like a bank account for your AI agent).
-- Owner: Can manage sessions, whitelist addresses
-- Whitelist: Addresses the wallet can send ETH to
+- Owner: Can manage sessions and execute transactions
+- Sessions: Session keys are authorized and limited by SessionManager (no per-wallet whitelist)
 - EntryPoint deposit: Pre-funded gas for sponsored transactions
 - Create: npx agentix wallet create --owner <address>
 - Execute: npx agentix wallet execute <wallet> --to <target> --value <eth>
@@ -167,9 +167,6 @@ Create a wallet via factory:
 
 Get wallet info:
   npx agentix wallet get <walletAddress>
-
-Whitelist an address:
-  npx agentix wallet whitelist <walletAddress> <partyAddress>
 
 Execute a transaction:
   npx agentix wallet execute <walletAddress> --to <addr> --value <eth>

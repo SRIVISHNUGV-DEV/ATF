@@ -84,23 +84,54 @@ export async function createLightweightSession(
   }
 }
 
+/**
+ * Read-only check of a lightweight session. SessionManager.validateLightweightSession is
+ * state-changing and callable only by the session's bound AgentWallet, so it can't be called
+ * directly by an off-chain tool. Simulate it with eth_call, spoofing msg.sender as the bound
+ * wallet — this applies the contract's exact rules (revoked, expiry, signer, allowed target,
+ * daily limits) without spending any of the session's allowance.
+ */
+export async function previewLightweightSessionValidation(
+  sessionManager: ethers.Contract,
+  sessionId: string,
+  signer: string,
+  valueWei: bigint | string,
+  target: string = ethers.ZeroAddress
+): Promise<{ valid: boolean; reason?: string }> {
+  try {
+    const session = await sessionManager.getLightSession(sessionId);
+    const boundWallet = session[0] as string;
+    if (boundWallet === ethers.ZeroAddress) return { valid: false, reason: "Session not found" };
+    const ok = await sessionManager.validateLightweightSession.staticCall(
+      sessionId, signer, valueWei, target, { from: boundWallet }
+    );
+    return { valid: Boolean(ok) };
+  } catch (e: any) {
+    return { valid: false, reason: e.revert?.name || e.reason || e.shortMessage || e.message };
+  }
+}
+
 export async function validateSession(
   sessionId: string,
   signerAddress: string,
-  value: string
+  value: string,
+  target?: string
 ): Promise<SessionResult> {
   try {
-    const sessionMgr = getContract("SessionManager");
-    const isValid = await sessionMgr.validateLightweightSession(
+    const sessionMgr = getReadonlyContract("SessionManager");
+    const check = await previewLightweightSessionValidation(
+      sessionMgr,
       sessionId,
       signerAddress,
-      BigInt(ethers.parseEther(value))
+      ethers.parseEther(value || "0"),
+      target || ethers.ZeroAddress
     );
 
     return {
-      success: isValid,
+      success: check.valid,
       sessionId,
-      details: { valid: isValid, value },
+      error: check.valid ? undefined : check.reason,
+      details: { valid: check.valid, value, ...(check.reason ? { reason: check.reason } : {}) },
     };
   } catch (e: any) {
     return { success: false, error: e.message };

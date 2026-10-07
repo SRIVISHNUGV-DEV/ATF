@@ -385,6 +385,36 @@ describe("LightweightSession", function () {
     });
   });
 
+  describe("off-chain validation preview", function () {
+    // validateLightweightSession is state-changing and onlyWallet, so off-chain tools
+    // (MCP/CLI) simulate it with eth_call, spoofing msg.sender as the bound wallet.
+    it("simulates validation via eth_call from the bound wallet without consuming allowance", async function () {
+      const sessionKey = await sessionKeySigner.getAddress();
+      const sessionId = await createSession("test-session-preview", owner, sessionKey);
+      const walletAddress = await wallet.getAddress();
+      const target = "0x000000000000000000000000000000000000dEaD";
+      // Read-only contract (provider runner, no signer) — as the off-chain tools use.
+      const sm = sessionManager.connect(ethers.provider) as any;
+
+      const ok = await sm.validateLightweightSession.staticCall(
+        sessionId, sessionKey, ethers.parseEther("0.1"), target, { from: walletAddress }
+      );
+      expect(ok).to.be.true;
+
+      // Wrong signer is rejected by the same simulation.
+      await expect(
+        sm.validateLightweightSession.staticCall(
+          sessionId, await other.getAddress(), 0n, target, { from: walletAddress }
+        )
+      ).to.be.revertedWithCustomError(sessionManager, "InvalidSigner");
+
+      // Nothing was spent by simulating.
+      const session = await sessionManager.getLightSession(sessionId);
+      expect(session.dailySpendUsed).to.equal(0n);
+      expect(session.dailyTxUsed).to.equal(0n);
+    });
+  });
+
   describe("dailyReset", function () {
     it("should reset daily limits after day boundary", async function () {
       const sessionKey = await sessionKeySigner.getAddress();

@@ -97,7 +97,7 @@ const tools = [
   // SESSION (agent-relevant: list, validate, find-mine)
   // ═══════════════════════════════════════════════════════════════
   { name: "agentix_session_list",        description: "List sessions — filter by walletAddress OR sessionKey (agent's own key)", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, sessionKey: { type: "string" } } } },
-  { name: "agentix_session_validate",    description: "On-chain check: is a session valid for this signer+value?", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, signer: { type: "string" }, value: { type: "string" } }, required: ["sessionId", "signer"] } },
+  { name: "agentix_session_validate",    description: "On-chain check: is a session valid for this signer+value (+ optional target)?", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, signer: { type: "string" }, value: { type: "string" }, target: { type: "string" } } , required: ["sessionId", "signer"] } },
   { name: "agentix_sessions_mine",       description: "Find all sessions where YOU are the session key — pass your agent address", inputSchema: { type: "object" as const, properties: { sessionKey: { type: "string" } }, required: ["sessionKey"] } },
   { name: "agentix_session_status",      description: "Get full session status: limits, remaining spend/tx, expiry, gas balance. Use this before submitting a UserOp.", inputSchema: { type: "object" as const, properties: { sessionId: { type: "string" }, walletAddress: { type: "string" } }, required: ["sessionId", "walletAddress"] } },
 
@@ -174,7 +174,8 @@ const tools = [
   // ═══════════════════════════════════════════════════════════════
   // AGENT KEY MANAGEMENT
   // ═══════════════════════════════════════════════════════════════
-  { name: "agentix_keygen", description: "Generate a new agent key pair. Returns YOUR address. The private key stays in your context — you MUST store it. The owner adds this address as a sessionKey via the dashboard.", inputSchema: { type: "object" as const, properties: {} } },
+  { name: "agentix_keygen", description: "Generate a new agent key pair. Returns the address and a tempId. The private key is stored encrypted in the local keystore and is NEVER returned. The owner adds this address as a sessionKey via the dashboard; then call agentix_keygen_bind to attach the key to the created session.", inputSchema: { type: "object" as const, properties: {} } },
+  { name: "agentix_keygen_bind", description: "Bind a key from agentix_keygen to the session the owner created for it, so agentix_bundler_send can sign with it. Fails unless the session's key address matches the generated key.", inputSchema: { type: "object" as const, properties: { tempId: { type: "string" }, sessionId: { type: "string" } }, required: ["tempId", "sessionId"] } },
 
   // ═══════════════════════════════════════════════════════════════
   // ONBOARDING (read-only + fund recommendations)
@@ -405,8 +406,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             dailySpendLimit: s.daily_spend_limit,
             dailyTxLimit: s.daily_tx_limit,
             expiry: s.expiry,
-            expiresAt: s.expiry > 1e12 ? new Date(s.expiry * 1000).toISOString() : null,
-            remainingSeconds: s.expiry > 1e12 ? s.expiry - Math.floor(Date.now() / 1000) : null,
+            // `expiry` is a unix timestamp in seconds.
+            expiresAt: s.expiry ? new Date(s.expiry * 1000).toISOString() : null,
+            remainingSeconds: s.expiry ? s.expiry - Math.floor(Date.now() / 1000) : null,
           })),
         };
         break;
@@ -422,8 +424,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // On-chain session check
         const sm = new ethers.Contract(config.contracts.sessionManager, [
           "function getLightSession(bytes32) view returns (address,address,uint256,uint256,uint256,uint256,uint64,bool)",
-          "function validateLightweightSession(bytes32,address,uint256) view returns (bool)",
-          "function getSessionType(bytes32) view returns (uint8)",
+                    "function getSessionType(bytes32) view returns (uint8)",
         ], getProvider());
 
         const [sessionData, sessionType] = await Promise.all([
@@ -486,13 +487,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { getProvider } = await import("../core/provider");
         const config = loadConfig();
         const sm = new ethers.Contract(config.contracts.sessionManager, [
-          "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value) view returns (bool)",
+          "function getLightSession(bytes32) view returns (address,address,uint256,uint256,uint256,uint256,uint64,bool)",
+          "function validateLightweightSession(bytes32 sessionId, address signer, uint256 value, address target) returns (bool)",
         ], getProvider());
         try {
+          const { previewLightweightSessionValidation } = await import("../tools/session");
           const valueStr = String(args?.value || "0");
           const valueWei = valueStr.includes(".") ? ethers.parseEther(valueStr) : valueStr;
-          const valid = await sm.validateLightweightSession(args!.sessionId, args!.signer, valueWei);
-          result = { valid, sessionId: args!.sessionId, signer: args!.signer };
+          const check = await previewLightweightSessionValidation(
+            sm, args!.sessionId as string, args!.signer as string, valueWei,
+            (args?.target as string) || ethers.ZeroAddress
+          );
+          result = { valid: check.valid, sessionId: args!.sessionId, signer: args!.signer, ...(check.reason ? { reason: check.reason } : {}) };
         } catch (e: any) {
           result = { valid: false, error: e.reason || e.message };
         }
@@ -745,6 +751,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           message: `Generated agent keypair. Address: ${key.address}. The private key is stored in the encrypted keystore (NOT returned here). The owner must add this address as a sessionKey via the dashboard. When the session is created, bind the key with: agentix_keygen_bind(tempId, sessionId).`,
           warning: "The private key is stored encrypted at rest. It is NEVER exposed through MCP.",
         };
+        break;
+      }
+
+      case "agentix_keygen_bind": {
+        const { loadSessionKey, persistSessionKey, purgeSessionKey } = await import("../core/session-keystore");
+        const tempId = String(args!.tempId || "");
+        const sessionId = String(args!.sessionId || "");
+        // Only temp keys created by agentix_keygen can be bound.
+        if (!tempId.startsWith("keygen_")) { result = { success: false, error: "Invalid tempId" }; break; }
+        const temp = loadSessionKey(tempId);
+        if (!temp) { result = { success: false, error: "Unknown tempId (key not found or already bound)" }; break; }
+        const row = runSingle<{ session_key: string }>("SELECT session_key FROM sessions WHERE session_id = ?", sessionId);
+        if (!row) { result = { success: false, error: "Session not found. The owner must create the session first." }; break; }
+        // The session must have been created for exactly this key.
+        if (row.session_key.toLowerCase() !== temp.address.toLowerCase()) {
+          result = { success: false, error: "Session key does not match the generated key address" };
+          break;
+        }
+        persistSessionKey(sessionId, temp.address, temp.privateKey);
+        purgeSessionKey(tempId);
+        result = { success: true, sessionId, address: temp.address };
         break;
       }
 

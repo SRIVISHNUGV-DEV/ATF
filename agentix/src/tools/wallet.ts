@@ -125,22 +125,12 @@ export async function whitelistAddress(
   partyAddress: string,
   status: boolean = true
 ): Promise<WalletResult> {
-  try {
-    const wallet = getWalletContract(walletAddress);
-    logger.info("wallet", `Setting whitelist for ${partyAddress} to ${status} on ${walletAddress}`);
-
-    const tx = await wallet.setWhiteListedParty(partyAddress, status);
-    const receipt = await tx.wait();
-
-    return {
-      success: true,
-      walletAddress,
-      txHash: receipt.hash,
-      details: { party: partyAddress, whitelisted: status },
-    };
-  } catch (e: any) {
-    return { success: false, error: e.message };
-  }
+  // The deployed AgentWallet has no whitelist (setWhiteListedParty no longer exists);
+  // authorization is enforced by SessionManager. Kept for API compatibility.
+  return {
+    success: false,
+    error: "AgentWallet does not support per-wallet whitelisting. Authorization is handled by SessionManager.",
+  };
 }
 
 export async function executeTransaction(
