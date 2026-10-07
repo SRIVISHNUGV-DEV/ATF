@@ -8,7 +8,7 @@
  *      placement silently overwrote leaves.
  *   3. Subsecond for inserts + proof reads at realistic population.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import {
   IncrementalMerkleTree,
   buildMerkleTreeRaw,
@@ -126,5 +126,14 @@ describe("IncrementalMerkleTree", () => {
     inc.remove(3);
     expect(inc.root().toString()).toBe(empty);
     expect(inc.size).toBe(0);
+  });
+});
+
+describe("getActiveTree on a cold process", () => {
+  it("initialises Poseidon before building the tree (dashboard /api/trees/all crashed otherwise)", async () => {
+    vi.resetModules(); // fresh merkle module => Poseidon not yet initialised
+    const { getActiveTree } = await import("../src/trees/active-tree");
+    const tree = await getActiveTree("cold-start-org");
+    expect(tree.getLeafCount()).toBe(0);
   });
 });

@@ -9,27 +9,27 @@
     "anchorImpl": "0x26d64c5Cad7e434534C9f349Bb14E777AA10E99F",
     "CredentialRegistry": {
       "proxy": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378",
-      "implementation": "0x3b738E79053eD2993A9c061Dd2A4AA85A9962378"
+      "implementation": "0x4D5a9500Ae721c181A046F3Bbe0CD2dBdEd21772"
     },
     "SessionManager": {
       "proxy": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf",
-      "implementation": "0x1651b88dB25005fB22906D7d28A25c45ef9dc2Bf"
+      "implementation": "0x60eE8216a90EE3767E8f50365B98a174CaBBBE57"
     },
     "AgentWalletFactory": {
       "proxy": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88",
-      "implementation": "0x95613c9cfEca1e77597cf6F54cDCA21a9Be7aA88"
+      "implementation": "0xfE014ACf3E0f558dF1b0E1A0E09a2D77C174aE54"
     },
     "CapabilityRegistry": {
       "proxy": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d",
-      "implementation": "0xDa7069616F793d4048809245AA7Ce3f1C1d3EC0d"
+      "implementation": "0xe2e0fA16Cd7e3E07b70e0AB94f67141f16398162"
     },
     "DelegationManager": {
       "proxy": "0x2F7e35D096b43A002964bB6e343494188ca51D11",
-      "implementation": "0x2F7e35D096b43A002964bB6e343494188ca51D11"
+      "implementation": "0x6564Ba889aaFF5c480e8628294926E261c4Ba69E"
     },
     "OrganizationRegistry": {
       "proxy": "0x982EAcfF15e6C326F534eB671B009546bae3D13a",
-      "implementation": "0x982EAcfF15e6C326F534eB671B009546bae3D13a"
+      "implementation": "0x7f96D41CCaBe5AEB931cEE485eb0DDff28D1e9E8"
     },
     "AgentIdentity": {
       "proxy": "0x5eb3688D61187550400A940D43461e7984Ca405c",

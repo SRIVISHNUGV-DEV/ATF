@@ -12,6 +12,19 @@ describe("23. Security Tests", () => {
       const guard = getProxyGuard();
       expect(guard).toBeDefined();
     });
+
+    it("default config never lists a proxy address as an implementation", async () => {
+      const { loadConfig } = await import("../src/core/config");
+      const { getProxyGuard } = await import("../src/core/proxy-guard");
+      const cfg = loadConfig();
+      const proxies = new Set(Object.values(cfg.contracts).map((a) => a.toLowerCase()));
+      for (const [name, impl] of Object.entries(cfg.implementations)) {
+        expect(proxies.has(impl.toLowerCase()), `${name} implementation equals a proxy`).toBe(false);
+      }
+      // Calling the real proxy must be allowed, calling the implementation must be blocked.
+      expect(getProxyGuard().validate(cfg.contracts.credentialRegistry, "credentialRegistry").valid).toBe(true);
+      expect(getProxyGuard().validate(cfg.implementations.credentialRegistry).valid).toBe(false);
+    });
   });
 
   describe("Input Validation", () => {
