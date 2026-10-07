@@ -219,3 +219,48 @@ describe("simulator fails closed", () => {
     }
   });
 });
+
+describe("compiler gateway: dry run and secret handling", () => {
+  async function makeGateway() {
+    const { CompilerGateway } = await import("../src/compiler-gateway");
+    const gw: any = new (CompilerGateway as any)();
+    const seen: { params?: any } = {};
+    const plan = {
+      planId: "plan-test",
+      risk: { requiresApproval: false, category: "LOW", score: 1, decision: "ALLOW" },
+      intent: { action: "wallet_execute", normalizedAction: "wallet_execute", params: {} },
+    };
+    gw.compiler = {
+      compileIntent: async (_a: string, params: any) => { seen.params = params; return { errors: [], warnings: [], plan }; },
+      approvePlan: vi.fn(), executePlan: vi.fn(), completePlan: vi.fn(), failPlan: vi.fn(),
+    };
+    gw._logAction = vi.fn();
+    gw._executePlanOnChain = vi.fn(async () => ({ success: true, txHash: "0xabc" }));
+    return { gw, seen };
+  }
+
+  it("dryRun returns the risk verdict without executing on-chain", async () => {
+    const { gw } = await makeGateway();
+    const r = await gw.executeIntent("wallet_execute", { target: "0x2222222222222222222222222222222222222222" }, "mcp", undefined, { dryRun: true });
+    expect(r.success).toBe(true);
+    expect(gw._executePlanOnChain).not.toHaveBeenCalled();
+    expect(gw.compiler.approvePlan).not.toHaveBeenCalled();
+  });
+
+  it("still executes when not a dry run", async () => {
+    const { gw } = await makeGateway();
+    const r = await gw.executeIntent("wallet_execute", { target: "0x2222222222222222222222222222222222222222" }, "mcp");
+    expect(r.success).toBe(true);
+    expect(gw._executePlanOnChain).toHaveBeenCalledTimes(1);
+  });
+
+  it("strips private keys from params before compiling, logging or persisting", async () => {
+    const { gw, seen } = await makeGateway();
+    await gw.executeIntent("wallet_execute", {
+      target: "0x2222222222222222222222222222222222222222",
+      ownerPrivateKey: "0x" + "ab".repeat(32),
+      agentPrivateKey: "0x" + "cd".repeat(32),
+    }, "mcp", undefined, { dryRun: true });
+    expect(Object.keys(seen.params)).toEqual(["target"]);
+  });
+});

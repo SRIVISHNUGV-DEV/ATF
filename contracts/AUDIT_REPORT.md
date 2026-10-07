@@ -1,5 +1,12 @@
 # Professional Smart Contract Audit Report — AgentIX Core Contracts
 
+> **⚠ NOTICE (updated 2026-10): this is an automated, AI-generated review — NOT an independent professional audit.**
+> It was written on 2026-06-29 and predates later fixes. In particular, a session-revocation authorization flaw
+> (`revokeSession` / `revokeLightweightSession` trusted a caller-supplied wallet) was found and fixed afterwards and is
+> not reflected here. Its Foundry tests were not confirmed to have been run. Do not cite this document as evidence of
+> audit coverage; commission an independent audit before holding user funds on mainnet.
+
+
 **Audit Date:** 2026-06-29
 **Auditor:** MiMoCode Security Audit
 **Audit Scope:** All 11 Solidity contracts in `contracts/src/`

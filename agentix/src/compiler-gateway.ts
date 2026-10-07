@@ -5,6 +5,17 @@ import { getEventBus } from '../packages/core/eventbus';
 import { runExecute } from './core/database';
 import { checkPolicy, getOwnerPolicy, type PolicyCheck } from './core/owner-policy';
 
+const SECRET_PARAM_KEY = /private[_-]?key|secret|mnemonic|seed[_-]?phrase/i;
+
+/** Drop key-material fields from caller-supplied params (shallow copy). */
+export function stripSecretParams(params: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (!SECRET_PARAM_KEY.test(k)) clean[k] = v;
+  }
+  return clean;
+}
+
 export interface GatewayResult {
   success: boolean;
   txHash?: string;
@@ -61,7 +72,8 @@ export class CompilerGateway {
     action: string,
     params: Record<string, unknown>,
     source: 'cli' | 'sdk' | 'rest' | 'mcp' | 'dashboard' | 'nl' = 'mcp',
-    context?: CompilerContext
+    context?: CompilerContext,
+    options?: { dryRun?: boolean }
   ): Promise<GatewayResult> {
     const start = Date.now();
 
@@ -76,6 +88,9 @@ export class CompilerGateway {
       if (params === null || typeof params !== 'object' || Array.isArray(params)) {
         return { success: false, errors: ['Invalid params: expected an object'], durationMs: Date.now() - start };
       }
+
+      // Never let key material reach the compiler, the plan store or the action log.
+      params = stripSecretParams(params);
 
       // 1. Read-only actions: skip policy check, just return info
       if (AGENT_FREE_ACTIONS.has(action)) {
@@ -153,6 +168,19 @@ export class CompilerGateway {
           requiresApproval: true,
           plan,
           explanation: plan.explanation,
+          warnings: result.warnings,
+          durationMs,
+          cacheHit: result.cacheHit,
+        };
+      }
+
+      // Dry run: the caller only wants the risk/policy verdict (e.g. x402 payment and
+      // voucher gates that perform their own settlement). Never execute here, or the
+      // action would run twice.
+      if (options?.dryRun) {
+        return {
+          success: true,
+          plan,
           warnings: result.warnings,
           durationMs,
           cacheHit: result.cacheHit,

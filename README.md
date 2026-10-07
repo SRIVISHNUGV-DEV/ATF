@@ -112,7 +112,7 @@ agentix/
 │   │   └── owner-policy.ts       # Spending policy enforcement
 │   ├── tools/                    # 15 tool modules
 │   ├── trees/                    # Merkle tree implementations
-│   ├── mcp/server.ts             # MCP server (69 tools)
+│   ├── mcp/server.ts             # MCP server (72 tools)
 │   ├── runtime/server.ts         # HTTP API (40+ routes)
 │   └── blockchain/adapter.ts     # Contract interactions
 ├── packages/
@@ -127,7 +127,7 @@ agentix/
 ├── apps/dashboard/               # Next.js 14 dashboard
 ├── tests/                        # 23 test files
 ├── scripts/                      # Build scripts
-└── circuits/                     # ZK circuit artifacts
+└── circuits/                     # ZK circuit artifacts (NOT in this repo: source + keys must be supplied, see agentix/src/core/setup-zk-artifacts.ts)
 ```
 
 ---

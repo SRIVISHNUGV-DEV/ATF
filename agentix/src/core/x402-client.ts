@@ -273,7 +273,7 @@ async function executePaymentViaBundler(
       amount: amount,
       recipient: payTo,
       paymentType: "x402",
-    }, "mcp", { walletAddress });
+    }, "mcp", { walletAddress }, { dryRun: true }); // risk verdict only; settlement happens below
 
     if (!riskResult.success && riskResult.requiresApproval) {
       return {

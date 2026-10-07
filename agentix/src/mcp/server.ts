@@ -81,7 +81,7 @@ const tools = [
   // WALLET (create + execute + read-only for agents)
   // ═══════════════════════════════════════════════════════════════
   { name: "agentix_wallet_create",       description: "⚠ DASHBOARD-ONLY: Deploy a new AgentWallet — use the dashboard at http://localhost:3000. Wallet creation requires owner involvement.", inputSchema: { type: "object" as const, properties: {} } },
-  { name: "agentix_wallet_execute",      description: "Execute a transaction AS THE WALLET OWNER through the ERC-4337 bundler. Uses a 65-byte owner signature (no session limits). Provide your agent private key as ownerPrivateKey.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, target: { type: "string" }, value: { type: "string" }, data: { type: "string" }, ownerPrivateKey: { type: "string" } }, required: ["walletAddress", "target", "ownerPrivateKey"] } },
+  { name: "agentix_wallet_execute",      description: "Execute a transaction from the wallet through the compiler gateway (owner policy + risk engine apply). Private keys are never accepted here; owner-signed actions go through the dashboard.", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" }, target: { type: "string" }, value: { type: "string" }, data: { type: "string" } }, required: ["walletAddress", "target"] } },
   { name: "agentix_wallet_list",         description: "List all wallets in local DB", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_wallet_get",          description: "Get wallet info (owner, SM, EP addresses)", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" } }, required: ["walletAddress"] } },
   { name: "agentix_wallet_balance",      description: "Get ETH balance and EntryPoint deposit for a wallet", inputSchema: { type: "object" as const, properties: { walletAddress: { type: "string" } }, required: ["walletAddress"] } },
@@ -197,7 +197,6 @@ const tools = [
   { name: "agentix_session_create",         description: "⚠ DASHBOARD-ONLY: Create a lightweight session — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_session_revoke",         description: "⚠ DASHBOARD-ONLY: Revoke a session — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_session_prune",          description: "⚠ DASHBOARD-ONLY: Prune expired sessions — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
-  { name: "agentix_wallet_whitelist",       description: "⚠ DASHBOARD-ONLY: Whitelist target — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_wallet_execute_batch",   description: "⚠ DASHBOARD-ONLY: Owner batch-execute — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_config_set",             description: "⚠ DASHBOARD-ONLY: Set config — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
   { name: "agentix_backup_create",          description: "⚠ DASHBOARD-ONLY: Create backup — use the dashboard at http://localhost:3000", inputSchema: { type: "object" as const, properties: {} } },
@@ -240,7 +239,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // Dashboard-only gate (session lifecycle, config mutations, system ops)
   const dashboardOnly: string[] = [
     "agentix_session_create", "agentix_session_revoke",
-    "agentix_session_prune", "agentix_wallet_whitelist",
+    "agentix_session_prune",
     "agentix_wallet_execute_batch", "agentix_config_set",
     "agentix_backup_create", "agentix_policy_set",
     "agentix_approve_plan", "agentix_wallet_create",
@@ -381,7 +380,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const walletAddr = args?.walletAddress as string | undefined;
         const sessionKey = args?.sessionKey as string | undefined;
         if (sessionKey) {
-          result = getSessionService().listAll ? getSessionService().listAll().filter((s: any) => s.session_key?.toLowerCase() === sessionKey.toLowerCase()) : [];
+          // SessionService returns camelCase rows.
+          result = getSessionService().listAll().filter((s: any) => (s.sessionKey || s.session_key)?.toLowerCase() === sessionKey.toLowerCase());
         } else if (walletAddr) {
           result = getSessionService().listByWallet(walletAddr);
         } else {
@@ -392,23 +392,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "agentix_sessions_mine": {
         const myKey = (args!.sessionKey as string).toLowerCase();
-        const all = getSessionService().listAll ? getSessionService().listAll() : [];
-        const mine = all.filter((s: any) =>
-          s.session_key?.toLowerCase() === myKey &&
+        const now = Math.floor(Date.now() / 1000);
+        // SessionService returns camelCase rows; `expiry` is a unix timestamp in seconds.
+        const mine = getSessionService().listAll().filter((s: any) =>
+          (s.sessionKey || s.session_key)?.toLowerCase() === myKey &&
           !s.revoked &&
-          (!s.expiry || s.expiry > Math.floor(Date.now() / 1000))
+          (!s.expiry || s.expiry > now)
         );
         result = {
           count: mine.length,
           sessions: mine.map((s: any) => ({
-            sessionId: s.session_id,
-            walletAddress: s.wallet_address,
-            dailySpendLimit: s.daily_spend_limit,
-            dailyTxLimit: s.daily_tx_limit,
+            sessionId: s.sessionId || s.session_id,
+            walletAddress: s.walletAddress || s.wallet_address,
+            dailySpendLimit: s.dailySpendLimit ?? s.daily_spend_limit,
+            dailyTxLimit: s.dailyTxLimit ?? s.daily_tx_limit,
             expiry: s.expiry,
-            // `expiry` is a unix timestamp in seconds.
             expiresAt: s.expiry ? new Date(s.expiry * 1000).toISOString() : null,
-            remainingSeconds: s.expiry ? s.expiry - Math.floor(Date.now() / 1000) : null,
+            remainingSeconds: s.expiry ? s.expiry - now : null,
           })),
         };
         break;
@@ -514,7 +514,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "agentix_org_get_anchor": {
         const org = getOrganizationService().get(args!.organizationId as string) as any;
         if (!org) { result = { error: "Org not found" }; break; }
-        const anchorAddr = org.credential_anchor;
+        const anchorAddr = org.credentialAnchor || org.credential_anchor; // service rows are camelCase
         if (!anchorAddr) { result = { error: "No anchor deployed" }; break; }
         try {
           const { ethers } = await import("ethers");
@@ -911,7 +911,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           target: args!.target,
           value: args!.value || '0',
           data: args!.data || '0x',
-          ownerPrivateKey: args!.ownerPrivateKey,
         }, 'mcp', { walletAddress: args!.walletAddress as string });
         break;
       }

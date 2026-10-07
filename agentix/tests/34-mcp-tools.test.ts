@@ -9,7 +9,8 @@
  * - Read-only tools return data without errors
  * - Tools requiring on-chain data degrade gracefully
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { join } from "path";
 import { loadConfig, ensureDirectories } from "../src/core/config";
 import { getDatabase, runQuery, runSingle, runExecute } from "../src/core/database";
 import { getProxyGuard } from "../src/core/proxy-guard";
@@ -40,7 +41,7 @@ async function callTool(name: string, args: Record<string, any> = {}): Promise<a
 
   const dashboardOnly: string[] = [
     "agentix_session_create", "agentix_session_revoke",
-    "agentix_session_prune", "agentix_wallet_whitelist",
+    "agentix_session_prune",
     "agentix_wallet_execute_batch", "agentix_config_set",
     "agentix_backup_create", "agentix_policy_set",
     "agentix_approve_plan", "agentix_wallet_create",
@@ -329,7 +330,6 @@ describe("34. MCP Tool Comprehensive Tests", () => {
     "agentix_session_create",
     "agentix_session_revoke",
     "agentix_session_prune",
-    "agentix_wallet_whitelist",
     "agentix_wallet_execute_batch",
     "agentix_config_set",
     "agentix_backup_create",
@@ -673,5 +673,81 @@ describe("previewLightweightSessionValidation", () => {
       validateLightweightSession: { staticCall: async () => { throw { revert: { name: "SessionExpired" } }; } },
     };
     expect(await previewLightweightSessionValidation(reverting, "0x1", "0x2", 0n)).toEqual({ valid: false, reason: "SessionExpired" });
+  });
+});
+
+// ── Real server over stdio ───────────────────────────────────────
+// The suite above replicates handler logic; these tests drive the actual
+// src/mcp/server.ts so regressions in the shipped server are caught.
+describe("MCP server (real stdio process)", () => {
+  let client: any;
+  let tools: any[];
+
+  const call = async (name: string, args: Record<string, any> = {}) => {
+    const r: any = await client.callTool({ name, arguments: args });
+    return JSON.parse(r.content[0].text);
+  };
+
+  beforeAll(async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", "src/mcp/server.ts"],
+      env: { ...process.env } as Record<string, string>,
+      cwd: join(__dirname, ".."),
+    });
+    client = new Client({ name: "test", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(transport);
+    tools = (await client.listTools()).tools;
+  }, 60000);
+
+  afterAll(async () => { await client?.close(); });
+
+  it("never accepts owner private keys or advertises the removed whitelist tool", () => {
+    expect(tools.find((t) => t.name === "agentix_wallet_whitelist")).toBeUndefined();
+    const exec = tools.find((t) => t.name === "agentix_wallet_execute");
+    expect(Object.keys(exec.inputSchema.properties)).not.toContain("ownerPrivateKey");
+  });
+
+  it("keeps dashboard-only tools gated", async () => {
+    expect((await call("agentix_session_create")).error).toBe("DASHBOARD_ONLY");
+  });
+
+  it("reports an unknown session as invalid with a reason", async () => {
+    const r = await call("agentix_session_validate", {
+      sessionId: "0x" + "11".repeat(32),
+      signer: "0x" + "22".repeat(20),
+    });
+    expect(r.valid).toBe(false);
+  });
+
+  it("keygen -> bind attaches the key only to a session created for that address", async () => {
+    const { runExecute } = await import("../src/core/database");
+    const { loadSessionKey } = await import("../src/core/session-keystore");
+    const gen = await call("agentix_keygen");
+    expect(JSON.stringify(gen)).not.toMatch(/0x[0-9a-f]{64}"/i); // no private key returned
+
+    const wallet = "0x" + "aa".repeat(20);
+    const goodId = "bind-good-" + Date.now();
+    const badId = "bind-bad-" + Date.now();
+    const expiry = Math.floor(Date.now() / 1000) + 3600;
+    const insert = `INSERT INTO sessions (session_id, wallet_address, session_key, daily_spend_limit, daily_tx_limit, expiry) VALUES (?, ?, ?, ?, ?, ?)`;
+    runExecute(insert, goodId, wallet, gen.address, "1", 10, expiry);
+    runExecute(insert, badId, wallet, "0x" + "bb".repeat(20), "1", 10, expiry);
+
+    expect((await call("agentix_keygen_bind", { tempId: gen.tempId, sessionId: badId })).success).toBe(false);
+    expect(loadSessionKey(badId)).toBeNull();
+
+    expect((await call("agentix_keygen_bind", { tempId: gen.tempId, sessionId: goodId })).success).toBe(true);
+    expect(loadSessionKey(goodId)?.address.toLowerCase()).toBe(gen.address.toLowerCase());
+    // temp entry is consumed
+    expect((await call("agentix_keygen_bind", { tempId: gen.tempId, sessionId: goodId })).success).toBe(false);
+
+    // sessions_mine reports real expiry timestamps (unix seconds)
+    const mine = await call("agentix_sessions_mine", { sessionKey: gen.address });
+    expect(mine.count).toBe(1);
+    expect(mine.sessions[0].expiresAt).toBe(new Date(expiry * 1000).toISOString());
+    expect(mine.sessions[0].remainingSeconds).toBeGreaterThan(3500);
   });
 });

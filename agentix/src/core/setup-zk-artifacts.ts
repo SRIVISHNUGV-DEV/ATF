@@ -91,7 +91,10 @@ export function setupArtifacts(): { ok: boolean; message: string } {
     return {
       ok: false,
       message: `ZK artifacts missing:\n${missing.join("\n")}\n` +
-        `Run the circuit build first (see circuits/README.md).`,
+        `The circuits/ directory (credential_V1.circom source, proving key, wasm, verification key) is ` +
+        `not included in this repository (*.zkey, *.wasm, *.r1cs and build/ are git-ignored). ` +
+        `Add the circuit source and build artifacts that match the deployed Groth16 verifier, ` +
+        `or place the three files at the paths above.`,
     };
   }
 

@@ -349,7 +349,7 @@ export async function acceptVoucher(
       recipient: voucher.payTo,
       paymentType: "x402-voucher",
       resource: voucher.resource,
-    }, "mcp", { walletAddress: voucher.wallet });
+    }, "mcp", { walletAddress: voucher.wallet }, { dryRun: true }); // risk verdict only; never execute here
 
     if (!riskResult.success && riskResult.requiresApproval) {
       return { accepted: false, error: `Voucher requires approval: ${riskResult.explanation || "Risk engine flagged this"}` };
