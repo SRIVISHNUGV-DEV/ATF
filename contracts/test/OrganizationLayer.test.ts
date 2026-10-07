@@ -204,7 +204,7 @@ describe("OrganizationLayer — Unit & Security", function () {
     it("Should set a new credential anchor via timelock", async function () {
       const newAnchorAddr = await newAnchorImpl.getAddress();
       await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await orgRegistry.acceptCredentialAnchor(ORG_ID);
       const org = await orgRegistry.getOrganization(ORG_ID);
@@ -215,7 +215,7 @@ describe("OrganizationLayer — Unit & Security", function () {
       const org = await orgRegistry.getOrganization(ORG_ID);
       const newAnchorAddr = await newAnchorImpl.getAddress();
       await orgRegistry.proposeCredentialAnchor(ORG_ID, newAnchorAddr);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await expect(orgRegistry.acceptCredentialAnchor(ORG_ID))
         .to.emit(orgRegistry, "CredentialAnchorUpdated")

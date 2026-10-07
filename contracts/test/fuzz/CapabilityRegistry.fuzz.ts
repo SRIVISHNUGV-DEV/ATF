@@ -52,7 +52,8 @@ describe("Fuzz — CapabilityRegistry", function () {
   });
 
   it("Fuzz: random grant root updates", async function () {
-    const grantors = Array.from({ length: 10 }, (_, i) => signers[i % signers.length]);
+    // Only the capability registrar (owner, who registers below) may update grant roots.
+    const grantors = Array.from({ length: 10 }, () => owner);
     const grantees = Array.from({ length: 10 }, (_, i) => signers[(i + 5) % signers.length]);
     const capIds: string[] = [];
     for (let i = 0; i < 10; i++) {

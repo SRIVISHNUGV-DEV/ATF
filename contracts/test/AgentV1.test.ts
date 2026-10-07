@@ -81,7 +81,7 @@ async function deployProtocol(): Promise<ProtocolContext> {
   );
 
   await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-  await ethers.provider.send("evm_increaseTime", [86400]);
+  await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
   await ethers.provider.send("evm_mine", []);
   await sessionManager.connect(owner).acceptWalletFactory();
   await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
@@ -312,14 +312,14 @@ describe("AgentWallet", function () {
   describe("Timelock Proposals", function () {
     it("Propose and accept sessionManager", async function () {
       await wallet.connect(ctx.owner).proposeSessionManager(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(ctx.owner).acceptSessionManager();
       expect(await wallet.sessionManager()).to.equal(ctx.alice.address);
     });
     it("Propose and accept entryPoint", async function () {
       await wallet.connect(ctx.owner).proposeEntryPoint(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await wallet.connect(ctx.owner).acceptEntryPoint();
       expect(await wallet.entryPoint()).to.equal(ctx.alice.address);
@@ -394,7 +394,7 @@ describe("AgentWalletFactory", function () {
     });
     it("Reverts zero-address owner", async function () {
       await expect(ctx.factory["createWallet(address,bytes32)"](ethers.ZeroAddress, ethers.ZeroHash))
-        .to.be.revertedWithCustomError(ctx.factory, "InvalidOwnerError");
+        .to.be.revertedWithCustomError(ctx.factory, "FactoryInvalidOwnerError");
     });
     it("Same owner+salt returns same wallet", async function () {
       const salt = ethers.keccak256(ethers.toUtf8Bytes("idem"));
@@ -420,7 +420,7 @@ describe("AgentWalletFactory", function () {
   describe("Timelock Admin", function () {
     it("Updates implementation, sessionManager, entryPoint via timelock", async function () {
       await ctx.factory.connect(ctx.owner).proposeImplementation(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await ctx.factory.connect(ctx.owner).acceptImplementation();
       expect(await ctx.factory.implementation()).to.equal(ctx.alice.address);
@@ -432,7 +432,7 @@ describe("AgentWalletFactory", function () {
     it("Reverts accept before timelock", async function () {
       await ctx.factory.connect(ctx.owner).proposeImplementation(ctx.alice.address);
       await expect(ctx.factory.connect(ctx.owner).acceptImplementation())
-        .to.be.revertedWithCustomError(ctx.factory, "TimelockNotReadyError");
+        .to.be.revertedWithCustomError(ctx.factory, "FactoryTimelockNotReadyError");
     });
     it("setAgentIdentity", async function () {
       await ctx.factory.connect(ctx.owner).setAgentIdentity(ctx.alice.address);
@@ -905,7 +905,7 @@ describe("SessionManager", function () {
   describe("WalletFactory Timelock", function () {
     it("Propose and accept", async function () {
       await ctx.sessionManager.connect(ctx.owner).proposeWalletFactory(ctx.alice.address);
-      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
       await ethers.provider.send("evm_mine", []);
       await ctx.sessionManager.connect(ctx.owner).acceptWalletFactory();
       expect(await ctx.sessionManager.walletFactory()).to.equal(ctx.alice.address);

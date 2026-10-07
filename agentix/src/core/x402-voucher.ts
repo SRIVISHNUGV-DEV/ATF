@@ -358,8 +358,9 @@ export async function acceptVoucher(
       return { accepted: false, error: `Voucher blocked by risk engine: ${riskResult.errors?.join("; ") || "Unknown"}` };
     }
   } catch (e: any) {
-    // Compiler unavailable — proceed with signature-only verification
-    logger.warn("x402-voucher", `Compiler gateway unavailable, accepting on signature only: ${e.message}`);
+    // Fail closed: if the risk gate cannot run, the voucher must not be accepted.
+    logger.error("x402-voucher", `Compiler gateway unavailable, rejecting voucher: ${e.message}`);
+    return { accepted: false, error: `Voucher rejected: risk check unavailable (${e.message})` };
   }
 
   // Mark nonce as used BEFORE serving the response (prevent double-spend)

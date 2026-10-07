@@ -63,7 +63,7 @@ describe("Migration — AgentWallet (Non-upgradeable, Factory-managed)", functio
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
     // Activate factory via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
 
@@ -75,32 +75,32 @@ describe("Migration — AgentWallet (Non-upgradeable, Factory-managed)", functio
     const walletAddress = (factory.interface.parseLog(event as any) as any).args.wallet;
     wallet = await ethers.getContractAt("AgentWallet", walletAddress);
 
-    // Populate state
-    await wallet.setWhiteListedSelector(signers[5].address, "0x12345678", true);
+    // Populate state: a pending ownership transfer must survive factory upgrades
+    await wallet.changeOwner(signers[5].address);
   });
 
   it("Wallet ownership persists across factory upgrades", async function () {
     expect(await wallet.owner()).to.equal(owner.address);
-    expect(await wallet.whiteListedSelectors(signers[5].address, "0x12345678")).to.be.true;
+    expect(await wallet.pendingOwner()).to.equal(signers[5].address);
   });
 
   it("Wallet remains functional after factory upgrade", async function () {
     const newImpl = await (await ethers.getContractFactory("AgentWallet")).deploy();
     await factory.proposeImplementation(await newImpl.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await factory.acceptImplementation();
 
     // Old wallet still works
     expect(await wallet.owner()).to.equal(owner.address);
-    await wallet.setWhiteListedSelector(signers[6].address, "0x12345678", true);
-    expect(await wallet.whiteListedSelectors(signers[6].address, "0x12345678")).to.be.true;
+    await expect(wallet.execute(signers[6].address, 0, "0x")).to.emit(wallet, "ExecutionPerformed");
+    expect(await wallet.pendingOwner()).to.equal(signers[5].address);
   });
 
   it("New wallets use updated factory config", async function () {
     const newImpl = await (await ethers.getContractFactory("AgentWallet")).deploy();
     await factory.proposeImplementation(await newImpl.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await factory.acceptImplementation();
 

@@ -291,9 +291,12 @@ async function executePaymentViaBundler(
 
     logger.info("x402", `Compiler approved payment: risk=${riskResult.warnings?.length || 0} warnings`);
   } catch (e: any) {
-    // If compiler gateway is unavailable, fall through to direct execution
-    // This ensures payments still work if the compiler package isn't loaded
-    logger.warn("x402", `Compiler gateway unavailable, proceeding with direct execution: ${e.message}`);
+    // Fail closed: if the risk gate cannot run, the payment must not proceed.
+    logger.error("x402", `Compiler gateway unavailable, refusing payment: ${e.message}`);
+    return {
+      success: false,
+      error: `x402 payment blocked: risk check unavailable (${e.message})`,
+    };
   }
 
   // 1. Encode USDC.transfer(payTo, amount)

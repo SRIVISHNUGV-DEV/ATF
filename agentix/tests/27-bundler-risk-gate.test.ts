@@ -6,8 +6,10 @@
  *   1. Fail-closed on unknown/revoked session.
  *   2. Blocks when no owner policy is configured (can't be assessed safely).
  *   3. The risk engine itself lands high-value transfers in the DENY band.
+ *   4. x402 voucher acceptance fails closed when the compiler gateway is unavailable.
+ *   5. The simulator reports timeouts / missing providers as failures, not success.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 describe("bundler risk gate", () => {
   it("fails closed on an unknown session", async () => {
@@ -91,5 +93,129 @@ describe("bundler risk gate", () => {
     });
     // Either allowed, or (if policy shape differs) still a well-formed decision.
     expect(["ALLOW", "ALLOW_WITH_CONTROLS", "REVIEW", "CHALLENGE", "DENY"]).toContain(gate.decision);
+  });
+});
+
+describe("x402 voucher risk gate", () => {
+  afterEach(() => {
+    vi.doUnmock("../src/compiler-gateway");
+    vi.resetModules();
+  });
+
+  it("rejects a validly signed voucher when the compiler gateway is unavailable", async () => {
+    vi.resetModules();
+    vi.doMock("../src/compiler-gateway", () => ({
+      getCompilerGateway: () => {
+        throw new Error("gateway offline");
+      },
+    }));
+
+    const { ethers } = await import("ethers");
+    const { runExecute } = await import("../src/core/database");
+    const { signVoucher, acceptVoucher } = await import("../src/core/x402-voucher");
+
+    const sessionKeyWallet = ethers.Wallet.createRandom();
+    const walletAddress = ethers.Wallet.createRandom().address;
+    const chainId = 84532;
+    runExecute(
+      `INSERT INTO sessions (session_id, wallet_address, session_key, daily_spend_limit, daily_tx_limit, expiry)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      `voucher-gate-${Date.now()}`,
+      walletAddress,
+      sessionKeyWallet.address,
+      "1000000",
+      10,
+      Math.floor(Date.now() / 1000) + 3600
+    );
+
+    const voucher = await signVoucher({
+      wallet: walletAddress,
+      payTo: ethers.Wallet.createRandom().address,
+      amount: "1000",
+      resource: "https://example.test/resource",
+      sessionKeyWallet,
+      chainId,
+    });
+
+    const result = await acceptVoucher(voucher, chainId);
+    expect(result.accepted).toBe(false);
+    expect(result.error).toContain("risk check unavailable");
+  });
+});
+
+describe("simulator fails closed", () => {
+  const config: any = {
+    pluginDirs: [],
+    defaultChainId: 84532,
+    simulationEnabled: true,
+    naturalLanguageEnabled: false,
+    riskThreshold: 75,
+    cacheTtl: 300,
+    maxPolicyRules: 50,
+  };
+  const intent: any = { action: "wallet_execute", normalizedAction: "wallet_execute" };
+  const graph: any = {
+    nodes: [
+      {
+        id: "n1",
+        type: "contract_call",
+        call: {
+          contractName: "AgentWallet",
+          address: "0x2222222222222222222222222222222222222222",
+          function: "execute",
+          args: [],
+          value: "0",
+          gasLimit: "0",
+        },
+        rollbackNodeIds: [],
+        dependsOn: [],
+      },
+    ],
+    edges: [],
+    entryPoints: ["n1"],
+    exitPoints: ["n1"],
+    criticalPath: ["n1"],
+    parallelBatches: [["n1"]],
+  };
+
+  async function makeSimulator() {
+    const { Simulator } = await import("../packages/compiler/pipeline/stage-7-simulator");
+    const { PluginRegistry } = await import("../packages/compiler/plugins/registry");
+    return new Simulator(new PluginRegistry(), config) as any;
+  }
+
+  it("reports failure (not success) when no provider is available for a call plan", async () => {
+    const sim = await makeSimulator();
+    sim._getProvider = () => null;
+    const result = await sim.simulate(intent, graph);
+    expect(result.success).toBe(false);
+    expect(result.errors.join(" ")).toMatch(/no provider/i);
+  });
+
+  it("still succeeds for plans with no contract calls even without a provider", async () => {
+    const sim = await makeSimulator();
+    sim._getProvider = () => null;
+    const result = await sim.simulate(intent, { ...graph, nodes: [] });
+    expect(result.success).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("treats a simulation timeout as a failure and does not cache it", async () => {
+    vi.useFakeTimers();
+    try {
+      const sim = await makeSimulator();
+      sim._getProvider = () => ({});
+      sim._executeSimulation = () => new Promise(() => {}); // never settles
+      const pending = sim.simulate(intent, graph);
+      await vi.advanceTimersByTimeAsync(3500);
+      const result = await pending;
+      expect(result.success).toBe(false);
+      expect(result.steps[0].success).toBe(false);
+      expect(result.steps[0].reverted).toBe(false);
+      expect(result.errors.join(" ")).toMatch(/timed out/i);
+      expect(sim.simulationCache.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

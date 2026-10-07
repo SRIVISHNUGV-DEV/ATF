@@ -26,12 +26,16 @@ const N = 300;
 function runWriter(home: string, tag: string): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     let out = "";
-    const p = spawn("bun", ["x", "tsx", WRITER, tag, String(N)], {
+    // Run with the current Node binary + the locally installed tsx loader so the test
+    // does not depend on bun being on PATH.
+    const p = spawn(process.execPath, ["--import", "tsx", WRITER, tag, String(N)], {
       env: { ...process.env, AGENTIX_HOME: home },
       cwd: join(__dirname, ".."),
     });
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (out += d));
+    // Fail fast on spawn errors instead of hanging until the test timeout.
+    p.on("error", (e) => resolve({ code: -1, out: `spawn failed: ${e.message}` }));
     p.on("close", (code) => resolve({ code, out: out.trim() }));
   });
 }

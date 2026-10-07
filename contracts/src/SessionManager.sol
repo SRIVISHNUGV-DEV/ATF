@@ -291,12 +291,16 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
     /// @notice Revokes a standard session. Callable by the session key or the wallet owner.
     /// @param sessionId The session to revoke.
-    /// @param wallet The AgentWallet the session belongs to.
+    /// @param wallet Deprecated and ignored; kept for ABI compatibility. Authorization
+    ///        always uses the wallet bound to the session at creation time, because a
+    ///        caller-supplied wallet would let anyone revoke any session by passing their own.
     function revokeSession(bytes32 sessionId, address wallet) external whenNotPaused {
+        wallet; // silence unused-parameter warning
         Session storage s = sessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
-        if (msg.sender != s.sessionKey && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+        address boundWallet = s.wallet;
+        if (msg.sender != s.sessionKey && (boundWallet.code.length == 0 || IAgentWallet(boundWallet).owner() != msg.sender)) {
             revert NotAuthorizedToRevoke();
         }
         s.revoked = true;
@@ -418,13 +422,16 @@ contract SessionManager is Initializable, ReentrancyGuard, PausableUpgradeable, 
 
     /// @notice Revokes a lightweight session. Callable by the session key or wallet owner.
     /// @param sessionId The session to revoke.
-    /// @param wallet The AgentWallet the session belongs to.
+    /// @param wallet Deprecated and ignored; kept for ABI compatibility. Authorization
+    ///        always uses the wallet bound to the session at creation time.
     function revokeLightweightSession(bytes32 sessionId, address wallet) external whenNotPaused {
+        wallet; // silence unused-parameter warning
         LightweightSession storage s = lightSessions[sessionId];
         if (s.sessionKey == address(0)) revert SessionNotFound();
         if (s.revoked) revert SessionAlreadyRevoked();
 
-        if (s.sessionKey != msg.sender && (wallet.code.length == 0 || IAgentWallet(wallet).owner() != msg.sender)) {
+        address boundWallet = s.wallet;
+        if (s.sessionKey != msg.sender && (boundWallet.code.length == 0 || IAgentWallet(boundWallet).owner() != msg.sender)) {
             revert NotAuthorizedToRevoke();
         }
 

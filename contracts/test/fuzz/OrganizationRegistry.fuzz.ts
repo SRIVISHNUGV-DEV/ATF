@@ -69,7 +69,7 @@ describe("Fuzz — OrganizationRegistry", function () {
     const newAnchorImpl = await AnchorF.deploy();
     const newAnchorAddr = await newAnchorImpl.getAddress();
     await orgReg.proposeCredentialAnchor(id, newAnchorAddr);
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await orgReg.acceptCredentialAnchor(id);
     const org = await orgReg.getOrganization(id);

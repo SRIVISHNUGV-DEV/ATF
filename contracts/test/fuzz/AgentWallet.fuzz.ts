@@ -63,7 +63,7 @@ describe("Fuzz — AgentWallet", function () {
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
     // Activate factory via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
 
@@ -76,15 +76,11 @@ describe("Fuzz — AgentWallet", function () {
     wallet = await ethers.getContractAt("AgentWallet", walletAddress);
   });
 
-  it("Fuzz: whitelist 200 addresses", async function () {
-    const TEST_SELECTOR = "0x12345678";
+  it("Fuzz: owner can execute on many distinct targets", async function () {
     const addrs = Array.from({ length: 200 }, (_, i) => signers[i % signers.length].address);
     const uniqueAddrs = [...new Set(addrs)];
     for (const a of uniqueAddrs) {
-      await wallet.setWhiteListedSelector(a, TEST_SELECTOR, true);
-    }
-    for (const a of uniqueAddrs) {
-      expect(await wallet.whiteListedSelectors(a, TEST_SELECTOR)).to.be.true;
+      await expect(wallet.execute(a, 0, "0x")).to.emit(wallet, "ExecutionPerformed");
     }
   });
 
@@ -116,9 +112,9 @@ describe("Fuzz — AgentWallet", function () {
     await expect(wallet.proposeSessionManager(ethers.ZeroAddress)).to.be.reverted;
   });
 
-  it("Fuzz: non-owner cannot change whitelist", async function () {
+  it("Fuzz: non-owner cannot execute", async function () {
     await expect(
-      wallet.connect(signers[1]).setWhiteListedSelector(signers[2].address, "0x12345678", true)
-    ).to.be.reverted;
+      wallet.connect(signers[1]).execute(signers[2].address, 0, "0x")
+    ).to.be.revertedWithCustomError(wallet, "NotAuthorizedError");
   });
 });

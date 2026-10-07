@@ -54,19 +54,22 @@ export class Simulator {
       return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
     }
 
-    const simulationPlugins = this.plugins.getByType('simulation-rule') as SimulationRulePlugin[];
-    const provider = this._getProvider();
-
-    if (!provider) {
-      warnings.push('No provider available — skipping simulation');
-      return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
-    }
-
     // Optimization 2: Filter to only contract_call nodes
     const callNodes = executionGraph.nodes.filter((n) => n.type === 'contract_call');
 
     if (callNodes.length === 0) {
       return { success: true, steps: [], totalGasEstimate: undefined, warnings, errors };
+    }
+
+    const simulationPlugins = this.plugins.getByType('simulation-rule') as SimulationRulePlugin[];
+    const provider = this._getProvider();
+
+    if (!provider) {
+      // Fail closed: a plan that makes contract calls but could not be simulated is
+      // unverified. Reported as an error (not a "skipped" warning) so the risk engine
+      // scores it as SIM_ERROR instead of treating it as a harmless skip.
+      errors.push('No provider available — simulation could not verify this plan');
+      return { success: false, steps: [], totalGasEstimate: undefined, warnings, errors };
     }
 
     // Optimization 3: Run preStep hooks in parallel, then simulate nodes in parallel
@@ -96,6 +99,8 @@ export class Simulator {
         steps.push(result.value);
         if (result.value.reverted) {
           errors.push(`Simulation reverted for ${callNodes[i].id}: ${result.value.revertReason}`);
+        } else if (!result.value.success) {
+          errors.push(`Simulation could not confirm ${callNodes[i].id}: ${result.value.error || 'unknown error'}`);
         }
       } else {
         steps.push({
@@ -148,9 +153,11 @@ export class Simulator {
 
       if (result === 'TIMEOUT') {
         step.error = `Simulation timed out after ${SIMULATION_TIMEOUT_MS}ms`;
-        // Don't fail on timeout — treat as success with warning
-        step.success = true;
+        // Fail closed: a timeout means the outcome is unknown, not that it succeeded.
+        // Return without caching so the next attempt re-simulates.
+        step.success = false;
         step.reverted = false;
+        return step;
       } else {
         step.success = true;
         step.reverted = false;

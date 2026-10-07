@@ -102,7 +102,7 @@ describe("Invariant Tests — AgentIX System", function () {
     factory = await ethers.getContractAt("AgentWalletFactory", await factoryProxy.getAddress());
     // Activate factory via timelock
     await sessionManager.connect(owner).proposeWalletFactory(await factory.getAddress());
-    await ethers.provider.send("evm_increaseTime", [86400]);
+    await ethers.provider.send("evm_increaseTime", [2 * 86400 + 1]);
     await ethers.provider.send("evm_mine", []);
     await sessionManager.connect(owner).acceptWalletFactory();
     await credentialRegistry.setSessionManager(await sessionManager.getAddress(), true);
@@ -232,13 +232,12 @@ describe("Invariant Tests — AgentIX System", function () {
       }
     });
 
-    it("INVARIANT: whitelist is deterministic", async function () {
+    it("INVARIANT: only the owner or EntryPoint can execute", async function () {
       const target = signers[5].address;
-      const selector = "0x12345678";
-      await wallet.setWhiteListedSelector(target, selector, true);
-      expect(await wallet.whiteListedSelectors(target, selector)).to.be.true;
-      await wallet.setWhiteListedSelector(target, selector, false);
-      expect(await wallet.whiteListedSelectors(target, selector)).to.be.false;
+      await expect(wallet.execute(target, 0, "0x")).to.emit(wallet, "ExecutionPerformed");
+      await expect(
+        wallet.connect(signers[6]).execute(target, 0, "0x")
+      ).to.be.revertedWithCustomError(wallet, "NotAuthorizedError");
     });
   });
 
