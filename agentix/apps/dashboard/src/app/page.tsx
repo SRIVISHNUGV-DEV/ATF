@@ -144,6 +144,7 @@ function DashboardInner() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [backendDown, setBackendDown] = useState(false);
+  const [notInitialized, setNotInitialized] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('agentix-theme') as 'light' | 'dark' | null;
@@ -170,8 +171,9 @@ function DashboardInner() {
       .then(d => {
         if (!d.initialized || !d.rpcConfigured) {
           if (onboardingDone) {
+            // The API answered, so it is reachable; the runtime just isn't set up.
             setShowOnboarding(false);
-            setBackendDown(true);
+            setNotInitialized(true);
           } else {
             setShowOnboarding(true);
           }
@@ -258,6 +260,11 @@ function DashboardInner() {
             {backendDown && (
               <div className="mb-4 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-300/80">
                 Backend API server is unreachable. Start the full stack with <code className="text-amber-200">bun run serve</code> from the agentix directory.
+              </div>
+            )}
+            {notInitialized && !backendDown && (
+              <div className="mb-4 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-300/80">
+                The runtime is reachable but not initialized or has no RPC configured. Open <code className="text-amber-200">/onboarding</code> to finish setup.
               </div>
             )}
             <Page />

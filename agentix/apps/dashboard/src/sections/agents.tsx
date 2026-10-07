@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Bot, RefreshCw, Wallet, User, CreditCard, KeyRound, Shield, Plus, Loader2, ExternalLink, Cpu, Check, Copy, ArrowRight, Sparkles } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Dialog, Input, Alert, StatusDot, Skeleton } from '@/components/ui';
-import { fetchJSON, postJSON, truncate, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, truncate, explorerAddress, formatSpendEth } from '@/lib/api';
 import { sendAndWaitForWalletCreation, getAccount, sendCreateLightweightSession, bundleAgentExecute } from '@/lib/tx-sender';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 import { getHarnessWallets, saveHarnessWallets, getAgentKey, setAgentKey } from '@/lib/storage';
@@ -473,7 +473,7 @@ export function AgentsPage() {
                         <Badge variant={s.revoked ? 'danger' : 'success'}>{s.revoked ? 'Revoked' : 'Active'}</Badge>
                       </div>
                       <div className="flex gap-3 mt-1 text-[9px] text-muted-foreground/60">
-                        <span>Spend: {s.dailySpendLimit || s.daily_spend_limit || '—'} ETH</span>
+                        <span>Spend: {formatSpendEth(s.dailySpendLimit ?? s.daily_spend_limit)} ETH</span>
                         <span>Tx: {s.dailyTxLimit || s.daily_tx_limit || '—'}/day</span>
                       </div>
                     </Card>

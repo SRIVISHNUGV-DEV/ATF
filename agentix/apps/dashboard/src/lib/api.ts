@@ -58,3 +58,14 @@ export function truncate(addr: string, chars = 6): string {
   if (!addr) return "—";
   return addr.length > chars + 4 ? `${addr.slice(0, chars)}...${addr.slice(-4)}` : addr;
 }
+
+/** Session spend limits are stored either as an ETH string ("0.1") or in wei; show ETH either way. */
+export function formatSpendEth(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—';
+  const s = String(v);
+  if (!/^\d{10,}$/.test(s)) return s; // already a small/decimal ETH value
+  const unit = BigInt('1000000000000000000');
+  const wei = BigInt(s);
+  const frac = (wei % unit).toString().padStart(18, '0').replace(/0+$/, '');
+  return frac ? `${wei / unit}.${frac}` : `${wei / unit}`;
+}

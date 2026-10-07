@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { KeyRound, RefreshCw, Shield, ShieldOff, ExternalLink, Plus, Loader2, Check, Wallet, Clock, AlertTriangle } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Dialog, Input, Select, Alert, StatusDot, Skeleton } from '@/components/ui';
-import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress, formatSpendEth } from '@/lib/api';
 import { sendCreateLightweightSession, getAccount } from '@/lib/tx-sender';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 
@@ -83,7 +83,7 @@ export function SessionsPage() {
     { key: 'sessionId', header: 'Session', render: (s: any) => <span className="font-mono text-xs">{truncate(s.sessionId || s.session_id, 10)}</span> },
     { key: 'wallet', header: 'Wallet', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.walletAddress || s.wallet_address, 8)}</span> },
     { key: 'key', header: 'Key', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.sessionKey || s.session_key, 8)}</span> },
-    { key: 'dailySpend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{s.dailySpendLimit || s.daily_spend_limit || '—'} ETH</span> },
+    { key: 'dailySpend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{formatSpendEth(s.dailySpendLimit ?? s.daily_spend_limit)} ETH</span> },
     { key: 'expires', header: 'Expires', render: (s: any) => (
       <div className="flex items-center gap-1.5">
         {/* expiry is a unix timestamp in seconds */}

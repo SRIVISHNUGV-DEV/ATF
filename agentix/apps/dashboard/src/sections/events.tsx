@@ -21,7 +21,7 @@ const EVENT_TYPES = [
   'DelegationRootUpdated', 'DelegationRevoked', 'DelegatorRevoked', 'DelegatorReAuthorized', 'ScopeRegistered',
   'OrganizationRegistered', 'OrganizationDeactivated', 'OrganizationReactivated', 'CredentialAnchorUpdated',
   'UserOperationValidated', 'EntryPointDepositAdded',
-  'CredentialIssued', 'CredentialRevoked', 'SessionCreated', 'SessionRevoked',
+  'CredentialIssued', 'CredentialRevoked',
 ];
 
 const SOURCE_ICONS: Record<string, any> = {

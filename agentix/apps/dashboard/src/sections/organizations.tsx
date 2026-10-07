@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Building2, Plus, RefreshCw, CheckCircle2, XCircle, Bot, CreditCard, KeyRound, Wallet, User, Settings, ArrowRight, Loader2, ExternalLink, Cpu, Shield, Copy, Sparkles, Server, Globe, Trash2 } from 'lucide-react';
 import { PageHeader, EmptyState, Badge, Button, Card, Table, Dialog, Input, Alert, StatusDot, Skeleton } from '@/components/ui';
-import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress } from '@/lib/api';
+import { fetchJSON, postJSON, deleteJSON, truncate, explorerAddress, formatSpendEth } from '@/lib/api';
 import { useWalletCtx } from '@/lib/web3modal-provider';
 import { sendAndWaitForWalletCreation, getAccount, sendCreateLightweightSession } from '@/lib/tx-sender';
 import { getHarnessWallets, saveHarnessWallets, getAgentKey, setAgentKey } from '@/lib/storage';
@@ -88,8 +88,10 @@ export function OrganizationsPage() {
         const list = h.value?.harnesses || [];
         setHarnesses(list.filter((x: any) => x.detect?.found).map((x: any) => ({ ...x.detect.harness, adapter: x.adapter })));
       }
-      if (w.status === 'fulfilled') setWallets(w.value.value || w.value || []);
-      if (s.status === 'fulfilled') setSessions(s.value.value || s.value || []);
+      // Service rows are camelCase; this page reads snake_case, so add aliases.
+      const withWalletAlias = (r: any) => ({ ...r, wallet_address: r.wallet_address ?? r.walletAddress });
+      if (w.status === 'fulfilled') setWallets((w.value.value || w.value || []).map(withWalletAlias));
+      if (s.status === 'fulfilled') setSessions((s.value.value || s.value || []).map(withWalletAlias));
       if (c.status === 'fulfilled') setCredentials(c.value.value || c.value || []);
       if (r.status === 'fulfilled') setRuntimes(Array.isArray(r.value) ? r.value : []);
     } catch (e) { console.error(e); }
@@ -628,7 +630,7 @@ export function OrganizationsPage() {
                         <Table columns={[
                           { key: 'session', header: 'Session ID', render: (s: any) => <span className="font-mono text-xs">{truncate(s.session_id, 12)}</span> },
                           { key: 'wallet', header: 'Wallet', render: (s: any) => <span className="font-mono text-xs text-muted-foreground">{truncate(s.wallet_address, 8)}</span> },
-                          { key: 'spend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{s.daily_spend_limit || '—'} ETH</span> },
+                          { key: 'spend', header: 'Daily Spend', render: (s: any) => <span className="text-xs">{formatSpendEth(s.dailySpendLimit ?? s.daily_spend_limit)} ETH</span> },
                           { key: 'txLimit', header: 'Daily Tx', render: (s: any) => <span className="text-xs">{s.daily_tx_limit || '—'}</span> },
                           { key: 'status', header: 'Status', render: (s: any) => <Badge variant={s.revoked ? 'danger' : 'success'}>{s.revoked ? 'Revoked' : 'Active'}</Badge> },
                           { key: 'expiry', header: 'Expires', render: (s: any) => <span className="text-xs text-muted-foreground">{s.expiry ? new Date(s.expiry * 1000).toLocaleDateString() : '—'}</span> },
